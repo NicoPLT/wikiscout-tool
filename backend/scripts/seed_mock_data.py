@@ -18,6 +18,7 @@ sys.path.append(".")
 
 from app.core.config import get_settings  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
+from app.db import base as _base  # noqa: E402,F401  # registra TUTTI i modelli prima di usare l'ORM
 from app.models.market_value import PlayerMarketValueHistory  # noqa: E402
 from app.models.player import Player  # noqa: E402
 from app.models.stats import PlayerStatsMatch  # noqa: E402
