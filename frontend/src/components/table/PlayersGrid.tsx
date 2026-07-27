@@ -1,6 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
-import { AllCommunityModule, ModuleRegistry, type ColDef } from 'ag-grid-community'
+import {
+  AllCommunityModule,
+  ModuleRegistry,
+  type ColDef,
+  type SelectionChangedEvent,
+} from 'ag-grid-community'
 import { useNavigate } from 'react-router-dom'
 import type { PlayerRow } from '../../types/player'
 import { wikiscoutGridTheme } from '../../lib/agGridTheme'
@@ -13,6 +18,8 @@ import {
   XgXaCellRenderer,
 } from './cellRenderers'
 import { removeFromWatchlist } from '../../lib/playersApi'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { Button } from '../ui/Button'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -21,36 +28,54 @@ interface PlayersGridProps {
   onRowRemoved: () => void
 }
 
-function RemoveCellRenderer(props: { data?: PlayerRow; onRemoved: () => void }) {
-  const [busy, setBusy] = useState(false)
-  if (!props.data) return null
+type PendingRemoval = { players: PlayerRow[] } | null
 
-  async function handleRemove(e: React.MouseEvent) {
-    e.stopPropagation()
-    if (!props.data) return
-    if (!window.confirm(`Rimuovere ${props.data.full_name} dalla watchlist?`)) return
-    setBusy(true)
-    try {
-      await removeFromWatchlist(props.data.id)
-      props.onRemoved()
-    } finally {
-      setBusy(false)
-    }
-  }
+function RemoveCellRenderer(props: { data?: PlayerRow; onRequestRemove: (player: PlayerRow) => void }) {
+  if (!props.data) return null
+  const player = props.data
 
   return (
     <button
-      onClick={handleRemove}
-      disabled={busy}
-      className="rounded-sm px-2 py-1 text-xs font-medium text-text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+      onClick={(e) => {
+        e.stopPropagation()
+        props.onRequestRemove(player)
+      }}
+      className="rounded-sm px-2 py-1 text-xs font-medium text-text-muted hover:bg-danger/10 hover:text-danger"
     >
-      {busy ? '...' : 'Rimuovi'}
+      Rimuovi
     </button>
   )
 }
 
 export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
   const navigate = useNavigate()
+  const gridRef = useRef<AgGridReact<PlayerRow>>(null)
+  const [selectedRows, setSelectedRows] = useState<PlayerRow[]>([])
+  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval>(null)
+  const [isRemoving, setIsRemoving] = useState(false)
+
+  function requestRemove(player: PlayerRow) {
+    setPendingRemoval({ players: [player] })
+  }
+
+  function requestBulkRemove() {
+    if (selectedRows.length === 0) return
+    setPendingRemoval({ players: selectedRows })
+  }
+
+  async function handleConfirmRemoval() {
+    if (!pendingRemoval) return
+    setIsRemoving(true)
+    try {
+      await Promise.all(pendingRemoval.players.map((p) => removeFromWatchlist(p.id)))
+      gridRef.current?.api?.deselectAll()
+      setSelectedRows([])
+      onRowRemoved()
+    } finally {
+      setIsRemoving(false)
+      setPendingRemoval(null)
+    }
+  }
 
   const columnDefs = useMemo<ColDef<PlayerRow>[]>(
     () => [
@@ -59,7 +84,7 @@ export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
         field: 'full_name',
         cellRenderer: PlayerNameCellRenderer,
         pinned: 'left',
-        minWidth: 220,
+        minWidth: 240,
         filter: 'agTextColumnFilter',
       },
       {
@@ -149,10 +174,12 @@ export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
         sortable: false,
         filter: false,
         resizable: false,
-        cellRenderer: (p: { data?: PlayerRow }) => <RemoveCellRenderer data={p.data} onRemoved={onRowRemoved} />,
+        cellRenderer: (p: { data?: PlayerRow }) => (
+          <RemoveCellRenderer data={p.data} onRequestRemove={requestRemove} />
+        ),
       },
     ],
-    [onRowRemoved],
+    [],
   )
 
   const defaultColDef = useMemo<ColDef>(
@@ -165,18 +192,64 @@ export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
     [],
   )
 
+  const dialogCopy = useMemo(() => {
+    if (!pendingRemoval) return { title: '', message: '' }
+    if (pendingRemoval.players.length === 1) {
+      return {
+        title: 'Rimuovi giocatore',
+        message: `Rimuovere ${pendingRemoval.players[0].full_name} dalla watchlist?`,
+      }
+    }
+    return {
+      title: 'Rimuovi giocatori',
+      message: `Rimuovere ${pendingRemoval.players.length} giocatori selezionati dalla watchlist?`,
+    }
+  }, [pendingRemoval])
+
   return (
-    <div style={{ height: '100%', width: '100%' }}>
-      <AgGridReact<PlayerRow>
-        theme={wikiscoutGridTheme}
-        rowData={rows}
-        columnDefs={columnDefs}
-        defaultColDef={defaultColDef}
-        getRowId={(p) => String(p.data.id)}
-        onRowClicked={(e) => e.data && navigate(`/players/${e.data.id}`)}
-        rowHeight={52}
-        headerHeight={44}
-        animateRows
+    <div className="flex h-full flex-col gap-3">
+      {selectedRows.length > 0 && (
+        <div className="flex items-center justify-between rounded-md border border-border-subtle bg-bg-surface-hover px-4 py-2">
+          <span className="text-sm text-text-secondary">
+            {selectedRows.length} giocator{selectedRows.length === 1 ? 'e' : 'i'} selezionat
+            {selectedRows.length === 1 ? 'o' : 'i'}
+          </span>
+          <Button variant="danger" onClick={requestBulkRemove} className="!px-3 !py-1 text-xs">
+            Rimuovi selezionati
+          </Button>
+        </div>
+      )}
+
+      <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
+        <AgGridReact<PlayerRow>
+          ref={gridRef}
+          theme={wikiscoutGridTheme}
+          rowData={rows}
+          columnDefs={columnDefs}
+          defaultColDef={defaultColDef}
+          getRowId={(p) => String(p.data.id)}
+          onRowClicked={(e) => e.data && navigate(`/players/${e.data.id}`)}
+          onSelectionChanged={(e: SelectionChangedEvent<PlayerRow>) => setSelectedRows(e.api.getSelectedRows())}
+          rowSelection={{
+            mode: 'multiRow',
+            checkboxes: true,
+            headerCheckbox: true,
+            enableClickSelection: false,
+          }}
+          rowHeight={52}
+          headerHeight={44}
+          animateRows
+        />
+      </div>
+
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title={dialogCopy.title}
+        message={dialogCopy.message}
+        confirmLabel="Rimuovi"
+        busy={isRemoving}
+        onConfirm={handleConfirmRemoval}
+        onCancel={() => setPendingRemoval(null)}
       />
     </div>
   )
