@@ -32,8 +32,16 @@ export async function addToWatchlist(playerId: number, notes?: string, tags?: st
   return data
 }
 
-export async function importPlayerFromTransfermarkt(transfermarktId: string): Promise<PlayerRow> {
-  const { data } = await api.post<PlayerRow>('/api/watchlist/import', { transfermarkt_id: transfermarktId })
+export async function importPlayerFromTransfermarkt(candidate: PlayerSearchResult): Promise<PlayerRow> {
+  const { data } = await api.post<PlayerRow>('/api/watchlist/import', {
+    transfermarkt_id: candidate.transfermarkt_id,
+    full_name: candidate.full_name,
+    current_team: candidate.current_team,
+    position: candidate.position,
+    nationality: candidate.nationality,
+    market_value_eur: candidate.market_value_eur,
+    photo_url: candidate.photo_url,
+  })
   return data
 }
 

@@ -159,19 +159,35 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
                     league=None,
                     photo_url=candidate["photo_url"],
                     in_watchlist=False,
+                    position=candidate["position"],
+                    nationality=candidate["nationality"],
+                    market_value_eur=candidate["market_value_eur"],
                 )
             )
 
     return results[:20]
 
 
-def import_player_from_transfermarkt(db: Session, user_id: int, transfermarkt_id: str) -> Player | None:
-    """Crea (se non esiste) un giocatore reale a partire dal suo id
-    Transfermarkt (trovato in ricerca), poi prova a risolvere il mapping
-    Sofascore per nome+squadra e a popolare statistiche stagionali/ultime
-    partite reali. Se il mapping Sofascore fallisce o e' ambiguo, il
-    giocatore viene comunque aggiunto (con dati Transfermarkt) e lo scout
-    potra' collegare Sofascore manualmente in un secondo momento.
+def import_player_from_transfermarkt(
+    db: Session,
+    user_id: int,
+    transfermarkt_id: str,
+    full_name: str,
+    current_team: str | None,
+    position: str | None,
+    nationality: str | None,
+    market_value_eur: float | None,
+    photo_url: str | None,
+) -> Player | None:
+    """Crea (se non esiste) un giocatore reale a partire dai dati del
+    candidato Transfermarkt gia' ottenuti in fase di ricerca (Transfermarkt
+    si cerca per NOME, non per id: non ha senso ri-cercare l'id come se
+    fosse un nome, per questo il chiamante passa i dati gia' noti invece di
+    un semplice id). Prova poi a risolvere il mapping Sofascore per
+    nome+squadra e a popolare statistiche stagionali/ultime partite reali.
+    Se il mapping Sofascore fallisce o e' ambiguo, il giocatore viene
+    comunque aggiunto (con dati Transfermarkt) e lo scout potra' collegare
+    Sofascore manualmente in un secondo momento.
     """
     existing = db.execute(
         select(Player).where(Player.transfermarkt_id == transfermarkt_id)
@@ -180,20 +196,15 @@ def import_player_from_transfermarkt(db: Session, user_id: int, transfermarkt_id
         add_to_watchlist(db, user_id, existing.id, None, None)
         return existing
 
-    candidates = transfermarkt.search_players_transfermarkt(transfermarkt_id)
-    match = next((c for c in candidates if c["transfermarkt_id"] == transfermarkt_id), None)
-    if match is None:
-        return None
-
     player = Player(
-        full_name=match["full_name"],
-        nationality=match["nationality"],
-        position=match["position"],
-        current_team=match["current_team"],
-        photo_url=match["photo_url"],
+        full_name=full_name,
+        nationality=nationality,
+        position=position,
+        current_team=current_team,
+        photo_url=photo_url,
         transfermarkt_id=transfermarkt_id,
-        market_value_eur=match["market_value_eur"],
-        market_value_updated_at=datetime.now(timezone.utc) if match["market_value_eur"] is not None else None,
+        market_value_eur=market_value_eur,
+        market_value_updated_at=datetime.now(timezone.utc) if market_value_eur is not None else None,
         last_synced_at=datetime.now(timezone.utc),
     )
     db.add(player)

@@ -57,7 +57,7 @@ export function Header({ userEmail, onPlayerAdded }: HeaderProps) {
       if (player.source === 'local' && player.id !== null) {
         await addToWatchlist(player.id)
       } else if (player.transfermarkt_id) {
-        await importPlayerFromTransfermarkt(player.transfermarkt_id)
+        await importPlayerFromTransfermarkt(player)
       }
       setResults((prev) => prev.map((r) => (resultKey(r) === key ? { ...r, in_watchlist: true } : r)))
       onPlayerAdded()

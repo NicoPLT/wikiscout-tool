@@ -123,10 +123,23 @@ class PlayerSearchResult(BaseModel):
     league: str | None
     photo_url: str | None
     in_watchlist: bool = False
+    # Presenti solo per source="transfermarkt": Transfermarkt si cerca per
+    # NOME, non per id, quindi per importare un candidato il frontend rimanda
+    # indietro questi campi cosi' come li ha ricevuti dalla ricerca, invece
+    # di far ricercare al backend l'id come se fosse un nome (non funziona).
+    position: str | None = None
+    nationality: str | None = None
+    market_value_eur: float | None = None
 
 
 class WatchlistImportRequest(BaseModel):
     transfermarkt_id: str
+    full_name: str
+    current_team: str | None = None
+    position: str | None = None
+    nationality: str | None = None
+    market_value_eur: float | None = None
+    photo_url: str | None = None
 
 
 class SofascoreLinkRequest(BaseModel):

@@ -58,7 +58,17 @@ def import_from_transfermarkt(
     nostro DB) e lo aggiunge subito alla watchlist, provando anche a
     collegare Sofascore per rating/xG/xA/statistiche stagionali.
     """
-    player = player_service.import_player_from_transfermarkt(db, current_user.id, payload.transfermarkt_id)
+    player = player_service.import_player_from_transfermarkt(
+        db,
+        current_user.id,
+        payload.transfermarkt_id,
+        payload.full_name,
+        payload.current_team,
+        payload.position,
+        payload.nationality,
+        payload.market_value_eur,
+        payload.photo_url,
+    )
     if player is None:
         raise HTTPException(
             status_code=502,

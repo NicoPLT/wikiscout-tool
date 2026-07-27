@@ -71,6 +71,9 @@ export interface PlayerSearchResult {
   league: string | null
   photo_url: string | null
   in_watchlist: boolean
+  position: string | null
+  nationality: string | null
+  market_value_eur: number | null
 }
 
 export interface MarketValueTrendPoint {
