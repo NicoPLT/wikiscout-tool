@@ -11,6 +11,7 @@ export interface PlayerRow {
   current_team: string | null
   league: string | null
   position: string | null
+  age: number | null
 
   market_value_eur: number | null
   market_value_change_eur: number | null

@@ -39,6 +39,16 @@ logger = logging.getLogger(__name__)
 WATCHLIST_CACHE_PREFIX = "watchlist:user:"
 
 
+def _compute_age(date_of_birth: date | None) -> int | None:
+    if date_of_birth is None:
+        return None
+    today = date.today()
+    age = today.year - date_of_birth.year
+    if (today.month, today.day) < (date_of_birth.month, date_of_birth.day):
+        age -= 1
+    return age
+
+
 def _player_to_row(player: Player, watchlist_entry: Watchlist | None) -> PlayerRow:
     return PlayerRow(
         id=player.id,
@@ -47,6 +57,7 @@ def _player_to_row(player: Player, watchlist_entry: Watchlist | None) -> PlayerR
         current_team=player.current_team,
         league=player.league,
         position=player.position,
+        age=_compute_age(player.date_of_birth),
         market_value_eur=float(player.market_value_eur) if player.market_value_eur is not None else None,
         market_value_change_eur=(
             float(player.market_value_change_eur) if player.market_value_change_eur is not None else None
@@ -103,6 +114,12 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
     player = db.get(Player, player_id)
     if player is None:
         return None
+
+    # Risolto qui (non solo a import/job notturno) cosi' il bottone Fotmob
+    # compare alla prima apertura della scheda invece di aspettare il giro
+    # notturno, per i giocatori importati prima che questo link esistesse.
+    if not player.fotmob_id and resolve_fotmob_link(player):
+        db.commit()
 
     watchlist_entry = db.execute(
         select(Watchlist).where(Watchlist.user_id == user_id, Watchlist.player_id == player_id)

@@ -172,6 +172,7 @@ export function PlayerDetailPage() {
               </p>
               <p className="mt-1 text-xs text-text-muted">
                 {player.nationality ?? 'N/D'} · nato il {formatDate(player.date_of_birth)}
+                {player.age !== null && ` (${player.age} anni)`}
               </p>
               {(player.transfermarkt_id || player.sofascore_id || player.fotmob_id) && (
                 <div className="mt-3 flex flex-wrap gap-2">

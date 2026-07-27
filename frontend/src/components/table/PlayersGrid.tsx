@@ -140,6 +140,13 @@ export function PlayersGrid({ rows, tags, onRowRemoved, onTagAssigned }: Players
         filter: 'agTextColumnFilter',
       },
       {
+        headerName: 'Età',
+        field: 'age',
+        minWidth: 90,
+        filter: 'agNumberColumnFilter',
+        valueFormatter: (p) => (p.value === null || p.value === undefined ? 'N/D' : String(p.value)),
+      },
+      {
         headerName: 'Valore di mercato',
         field: 'market_value_eur',
         cellRenderer: MarketValueCellRenderer,

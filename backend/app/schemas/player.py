@@ -16,6 +16,9 @@ class PlayerRow(BaseModel):
     current_team: str | None
     league: str | None
     position: str | None
+    # Calcolata da date_of_birth al momento della lettura (non salvata sul
+    # giocatore): cambia nel tempo, non ha senso persistere un valore stantio.
+    age: int | None = None
 
     market_value_eur: float | None
     market_value_change_eur: float | None
