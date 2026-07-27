@@ -143,24 +143,19 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
     ]
 
     if len(query.strip()) >= 3:
-        for entry in api_football.search_players(query):
-            player_info = entry.get("player", {})
-            af_id = str(player_info.get("id"))
+        for candidate in api_football.search_players(query):
+            af_id = str(candidate["id"])
             if af_id in known_api_football_ids:
                 continue  # gia' rappresentato tra i risultati locali
-
-            primary = api_football.pick_primary_statistics(entry.get("statistics", []))
-            team = (primary or {}).get("team", {}).get("name")
-            league = (primary or {}).get("league", {}).get("name")
 
             results.append(
                 PlayerSearchResult(
                     source="api_football",
                     api_football_id=af_id,
-                    full_name=player_info.get("name") or f"{player_info.get('firstname', '')} {player_info.get('lastname', '')}".strip(),
-                    current_team=team,
-                    league=league,
-                    photo_url=player_info.get("photo"),
+                    full_name=candidate["name"],
+                    current_team=candidate["team"],
+                    league=candidate["league"],
+                    photo_url=candidate["photo"],
                     in_watchlist=False,
                 )
             )

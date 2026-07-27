@@ -15,6 +15,7 @@ Note sui limiti del piano gratuito (100 richieste/giorno):
   ha giocato nelle ultime 48h.
 """
 
+import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -77,7 +78,16 @@ def _get(path: str, params: dict) -> dict:
     with httpx.Client(base_url=BASE_URL, headers=headers, timeout=15) as client:
         response = client.get(path, params=params)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+
+    # API-Football risponde quasi sempre con HTTP 200 anche quando i parametri
+    # sono invalidi/non permessi dal piano: l'errore vero e proprio e' dentro
+    # al campo "errors" del corpo, non nello status code.
+    errors = data.get("errors")
+    if errors:
+        logger.warning("API-Football ha risposto con errori per %s %s: %s", path, params, errors)
+
+    return data
 
 
 def pick_primary_statistics(statistics: list[dict]) -> dict | None:
@@ -89,18 +99,28 @@ def pick_primary_statistics(statistics: list[dict]) -> dict | None:
     return max(league_entries, key=lambda s: (s.get("games", {}) or {}).get("appearences") or 0)
 
 
+MAX_SEARCH_CANDIDATES = 5
+
+
 def search_players(query: str) -> list[dict]:
-    """Cerca giocatori reali per nome. Ritorna una lista di {player, statistics}."""
+    """Cerca giocatori reali per nome, con squadra/campionato attuali.
+
+    NOTA: l'endpoint /players (statistiche) richiede sempre league o team
+    insieme a search, quindi non e' utilizzabile per un autocomplete libero.
+    Usiamo invece /players/profiles?search=..., che cerca per nome senza
+    questo vincolo ma non include squadra/campionato; per ognuno dei primi
+    risultati facciamo percio' una chiamata aggiuntiva (get_player_by_id) per
+    risolvere la squadra attuale, scartando i profili senza stagione corrente
+    (probabilmente ritirati o inattivi). Costo per una query NUOVA (non in
+    cache): 1 + fino a MAX_SEARCH_CANDIDATES chiamate.
+    """
     if not is_configured():
         logger.warning("API_FOOTBALL_KEY non configurata: salto ricerca giocatori")
         return []
 
-    season = current_season()
-    cache_key = f"af_search:{query.strip().lower()}:{season}"
+    cache_key = f"af_search:{query.strip().lower()}"
     cached = redis_client.get(cache_key)
     if cached is not None:
-        import json
-
         return json.loads(cached)
 
     if is_near_limit(SOURCE, settings.API_FOOTBALL_DAILY_LIMIT):
@@ -108,14 +128,38 @@ def search_players(query: str) -> list[dict]:
         return []
 
     try:
-        data = _get("/players", {"search": query, "season": season})
+        data = _get("/players/profiles", {"search": query})
     except httpx.HTTPError as exc:
-        logger.error("Errore ricerca API-Football per '%s': %s", query, exc)
+        logger.error("Errore ricerca profili API-Football per '%s': %s", query, exc)
         return []
 
-    results = data.get("response", [])
+    profiles = data.get("response", [])[:MAX_SEARCH_CANDIDATES]
+    season = current_season()
+    results: list[dict] = []
 
-    import json
+    for item in profiles:
+        player_info = item.get("player", {})
+        player_id = player_info.get("id")
+        if player_id is None:
+            continue
+
+        entry = get_player_by_id(player_id, season) or get_player_by_id(player_id, season - 1)
+        if entry is None:
+            continue
+
+        snapshot = build_player_snapshot(entry)
+        if not snapshot.get("current_team"):
+            continue  # niente squadra in stagione corrente: probabilmente non attivo
+
+        results.append(
+            {
+                "id": player_id,
+                "name": snapshot["full_name"] or player_info.get("name"),
+                "photo": snapshot["photo_url"] or player_info.get("photo"),
+                "team": snapshot["current_team"],
+                "league": snapshot["league"],
+            }
+        )
 
     redis_client.set(cache_key, json.dumps(results), ex=SEARCH_CACHE_TTL_SECONDS)
     return results
