@@ -287,7 +287,16 @@ export function PlayersGrid({ rows, tags, onRowRemoved, onTagAssigned }: Players
                 }
               : undefined
           }
-          onRowClicked={(e) => e.data && navigate(`/players/${e.data.id}`)}
+          onRowClicked={(e) => {
+            // AG Grid dispatches rowClicked for any click inside the row,
+            // including custom cell renderers with interactive elements
+            // (il select dei tag, il bottone "Rimuovi"): React's
+            // stopPropagation dentro quei renderer non basta a fermarlo,
+            // quindi va escluso qui in base all'elemento cliccato.
+            const target = e.event?.target as HTMLElement | null
+            if (target?.closest('select, button, input, a')) return
+            if (e.data) navigate(`/players/${e.data.id}`)
+          }}
           onSelectionChanged={(e: SelectionChangedEvent<PlayerRow>) => setSelectedRows(e.api.getSelectedRows())}
           rowSelection={{
             mode: 'multiRow',
