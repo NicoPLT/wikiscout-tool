@@ -5,7 +5,7 @@ import { Card } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
-import { fetchPlayerDetail, updateWatchlistEntry } from '../lib/playersApi'
+import { fetchPlayerDetail, linkSofascoreProfile, updateWatchlistEntry } from '../lib/playersApi'
 import type { PlayerDetail } from '../types/player'
 import { formatCurrency, formatDate, formatPct, formatRelativeUpdate } from '../lib/format'
 
@@ -25,6 +25,9 @@ export function PlayerDetailPage() {
   const [tagsInput, setTagsInput] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [sofascoreInput, setSofascoreInput] = useState('')
+  const [isLinkingSofascore, setIsLinkingSofascore] = useState(false)
+  const [sofascoreLinkError, setSofascoreLinkError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!playerId) return
@@ -49,6 +52,21 @@ export function PlayerDetailPage() {
       setTimeout(() => setSaved(false), 2000)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleLinkSofascore() {
+    if (!player || !sofascoreInput.trim()) return
+    setIsLinkingSofascore(true)
+    setSofascoreLinkError(null)
+    try {
+      const updated = await linkSofascoreProfile(player.id, sofascoreInput.trim())
+      setPlayer(updated as PlayerDetail)
+      setSofascoreInput('')
+    } catch {
+      setSofascoreLinkError('URL/id non valido, o profilo senza statistiche disponibili. Controlla il link e riprova.')
+    } finally {
+      setIsLinkingSofascore(false)
     }
   }
 
@@ -173,6 +191,29 @@ export function PlayerDetailPage() {
             </div>
           </Card>
         </div>
+
+        {!player.sofascore_id && (
+          <Card title="Collega profilo Sofascore">
+            <p className="text-sm text-text-secondary">
+              Non abbiamo trovato con certezza il profilo Sofascore di questo giocatore (nome ambiguo o
+              omonimia), quindi rating/xG/xA/statistiche restano N/D. Incolla qui il link del profilo
+              corretto (es. https://www.sofascore.com/player/erling-haaland/839956) per collegarlo
+              manualmente.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <input
+                value={sofascoreInput}
+                onChange={(e) => setSofascoreInput(e.target.value)}
+                placeholder="https://www.sofascore.com/player/..."
+                className="min-w-[280px] flex-1 rounded-md border border-border-subtle bg-bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
+              />
+              <Button onClick={handleLinkSofascore} disabled={isLinkingSofascore || !sofascoreInput.trim()}>
+                {isLinkingSofascore ? 'Collegamento...' : 'Collega'}
+              </Button>
+            </div>
+            {sofascoreLinkError && <p className="mt-2 text-xs text-danger">{sofascoreLinkError}</p>}
+          </Card>
+        )}
 
         <Card title="Storico partite">
           <div className="overflow-x-auto">

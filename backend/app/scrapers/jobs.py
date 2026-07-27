@@ -1,18 +1,20 @@
 """Job notturno di aggiornamento dati per tutti i giocatori in watchlist.
 
-Orchestrazione (eseguita una volta al giorno, ore configurate in .env):
-  1. Per ogni giocatore in almeno una watchlist, controlla se ha giocato
-     nelle ultime 24-48h (API-Football) e in caso aggiorna le statistiche.
-  2. Se il campionato e' coperto da Understat, aggiorna xG/xA.
-  3. Aggiorna il valore di mercato (Transfermarkt) solo se l'ultimo
-     aggiornamento risale a piu' di 7 giorni fa.
-  4. Aggiorna il rating (Sofascore/Fotmob) se disponibile.
-  5. Scrive ogni esito in data_sources_log.
+Orchestrazione (eseguita una volta al giorno, ore configurate in .env), per
+ogni giocatore in watchlist:
+  1. Transfermarkt: valore di mercato, solo se l'ultimo aggiornamento risale
+     a piu' di 7 giorni fa (non toccato rispetto a prima).
+  2. Sofascore: statistiche stagionali (goal/assist/presenze/minuti),
+     ultime partite reali, rating e xG/xA — un'unica sessione browser
+     Playwright riutilizzata per tutti i giocatori del giro.
+  3. (opzionale, spento di default) API-Football legacy, solo se
+     ENABLE_API_FOOTBALL=true — vedi app/services/providers/api_football.py.
+  4. Scrive ogni esito in data_sources_log e il timestamp "ultimo
+     aggiornamento" per riga.
 
-Finche' le chiavi API-Football/Apify non sono configurate, ogni step logga
-un warning e viene saltato (vedi app/scrapers/*.py) senza mai rompere il job
-o l'app: la dashboard continua a leggere l'ultimo snapshot scritto nel DB
-(dal seed di mock in Fase A, o dal job stesso una volta attive le chiavi).
+Se una fonte non e' disponibile o un giocatore non ha un link valido
+(es. sofascore_id non ancora risolto), lo step viene saltato con un log,
+senza mai rompere il job per gli altri giocatori.
 """
 
 import logging
@@ -22,17 +24,18 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.data_source_log import DataSourceLog
 from app.models.market_value import PlayerMarketValueHistory
 from app.models.player import Player
-from app.models.stats import PlayerStatsMatch
 from app.models.watchlist import Watchlist
-from app.scrapers import api_football, sofascore, transfermarkt, understat
+from app.scrapers import sofascore, transfermarkt
 from app.services.cache_service import cache_delete_prefix
 from app.services.player_service import WATCHLIST_CACHE_PREFIX
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 MARKET_VALUE_REFRESH_DAYS = 7
 
@@ -69,13 +72,21 @@ def run_nightly_update() -> None:
         logger.info("Job notturno: %s giocatori in watchlist da controllare", len(players))
 
         for player in players:
-            _update_recent_stats(db, player, now)
-            _update_xg_xa(db, player, now)
             _update_market_value(db, player, now)
-            _update_rating(db, player, now)
+            processed += 1
+
+        # Una sola sessione browser Sofascore per tutti i giocatori del giro
+        # (evita di pagare avvio/consenso una volta per giocatore).
+        with sofascore.SofascoreSession() as session:
+            for player in players:
+                _update_from_sofascore(db, session, player, now)
+
+        if settings.ENABLE_API_FOOTBALL:
+            _run_legacy_api_football_step(db, players, now)
+
+        for player in players:
             player.last_synced_at = now
             db.add(player)
-            processed += 1
 
         db.commit()
 
@@ -90,122 +101,6 @@ def run_nightly_update() -> None:
         _log_run(db, "nightly_update", "all", "error", str(exc), processed, duration_ms)
     finally:
         db.close()
-
-
-def _update_recent_stats(db: Session, player: Player, now: datetime) -> None:
-    """Rinfresca gli aggregati stagionali e aggiunge eventuali nuove partite
-    reali (giocate nelle ultime 48h) per un giocatore con un vero
-    api_football_id. I giocatori del seed di mock hanno id fittizi
-    (es. "mock-af-3") e vengono saltati senza errore.
-    """
-    if not player.api_football_id:
-        return
-    try:
-        api_football_id = int(player.api_football_id)
-    except ValueError:
-        logger.info("player_id=%s ha un api_football_id non reale (seed mock): salto", player.id)
-        return
-
-    entry = api_football.get_player_by_id(api_football_id)
-    if entry is None:
-        return
-
-    snapshot = api_football.build_player_snapshot(entry)
-    player.current_team = snapshot["current_team"] or player.current_team
-    player.league = snapshot["league"] or player.league
-    player.is_xg_covered = snapshot["is_xg_covered"]
-    player.goals_season = snapshot["goals_season"]
-    player.assists_season = snapshot["assists_season"]
-    player.appearances_season = snapshot["appearances_season"]
-    player.minutes_season = snapshot["minutes_season"]
-
-    team_id = snapshot.get("team_id")
-    if team_id:
-        _ingest_new_fixtures(db, player, team_id, api_football_id, now)
-
-    player.stats_updated_at = now
-
-
-def _ingest_new_fixtures(db: Session, player: Player, team_id: int, api_football_id: int, now: datetime) -> None:
-    existing_refs = {
-        ref
-        for ref in db.execute(
-            select(PlayerStatsMatch.external_ref).where(PlayerStatsMatch.player_id == player.id)
-        ).scalars()
-        if ref
-    }
-
-    fixtures = api_football.get_team_recent_fixtures(team_id, last=2)
-    new_rows: list[PlayerStatsMatch] = []
-
-    for fixture in fixtures:
-        if not api_football.is_recently_finished(fixture, within_hours=48):
-            continue
-
-        fixture_id = fixture.get("fixture", {}).get("id")
-        if fixture_id is None or str(fixture_id) in existing_refs:
-            continue
-
-        stats = api_football.get_fixture_player_stats(fixture_id, api_football_id)
-        if stats is None:
-            continue
-
-        games = stats.get("statistics", [{}])[0].get("games", {}) if stats.get("statistics") else {}
-        goals = stats.get("statistics", [{}])[0].get("goals", {}) if stats.get("statistics") else {}
-        teams = fixture.get("teams", {})
-        is_home = (teams.get("home", {}) or {}).get("id") == team_id
-        rating_raw = games.get("rating")
-
-        new_rows.append(
-            PlayerStatsMatch(
-                player_id=player.id,
-                match_date=api_football.fixture_match_date(fixture) or now.date(),
-                competition=fixture.get("league", {}).get("name") or player.league or "N/D",
-                opponent=(teams.get("away") if is_home else teams.get("home") or {}).get("name"),
-                is_home=is_home,
-                minutes_played=games.get("minutes") or 0,
-                goals=goals.get("total") or 0,
-                assists=goals.get("assists") or 0,
-                rating=float(rating_raw) if rating_raw else None,
-                source="api_football",
-                external_ref=str(fixture_id),
-            )
-        )
-
-    if not new_rows:
-        return
-
-    db.add_all(new_rows)
-    db.flush()
-
-    all_matches = db.execute(
-        select(PlayerStatsMatch)
-        .where(PlayerStatsMatch.player_id == player.id)
-        .order_by(PlayerStatsMatch.match_date.desc())
-        .limit(5)
-    ).scalars().all()
-
-    player.goals_last5 = sum(m.goals for m in all_matches)
-    player.assists_last5 = sum(m.assists for m in all_matches)
-
-    rated_new = [r.rating for r in new_rows if r.rating is not None]
-    if rated_new and not sofascore.is_configured():
-        # Se non abbiamo ancora una fonte Sofascore reale, usiamo il rating
-        # match-by-match di API-Football (comunque dato reale) come base.
-        player.rating_avg = round(rated_new[-1], 2) if len(rated_new) == 1 else round(
-            sum(rated_new) / len(rated_new), 2
-        )
-        player.rating_updated_at = now
-
-
-def _update_xg_xa(db: Session, player: Player, now: datetime) -> None:
-    if not player.is_xg_covered:
-        return
-    data = understat.fetch_xg_xa(player, season=api_football.current_season())
-    if not data:
-        return
-    player.xg_season = data.get("xG", player.xg_season)
-    player.xa_season = data.get("xA", player.xa_season)
 
 
 def _update_market_value(db: Session, player: Player, now: datetime) -> None:
@@ -237,9 +132,44 @@ def _update_market_value(db: Session, player: Player, now: datetime) -> None:
     )
 
 
-def _update_rating(db: Session, player: Player, now: datetime) -> None:
-    rating = sofascore.fetch_latest_rating(player)
-    if rating is None:
+def _update_from_sofascore(db: Session, session: "sofascore.SofascoreSession", player: Player, now: datetime) -> None:
+    if not session.ok:
+        logger.warning("Sessione Sofascore non disponibile: salto tutti i giocatori per questo giro")
         return
-    player.rating_avg = rating
-    player.rating_updated_at = now
+
+    from app.services.player_service import _apply_sofascore_link, link_sofascore_profile
+
+    if not player.sofascore_id:
+        # Prima volta che vediamo questo giocatore senza link: prova a
+        # risolverlo automaticamente (stesso pattern usato in fase di import).
+        link_sofascore_profile(db, session, player)
+        return
+
+    _apply_sofascore_link(db, session, player, int(player.sofascore_id))
+
+
+def _run_legacy_api_football_step(db: Session, players: list[Player], now: datetime) -> None:
+    """Step legacy/opzionale, spento di default (ENABLE_API_FOOTBALL=false).
+    Non fa piu' parte del percorso critico: Transfermarkt/Sofascore coprono
+    gia' ricerca, valore di mercato, statistiche, rating e xG/xA.
+    """
+    from app.services.providers import api_football
+
+    if not api_football.is_configured():
+        return
+
+    logger.info("Step legacy API-Football attivo (ENABLE_API_FOOTBALL=true)")
+    for player in players:
+        if not player.api_football_id:
+            continue
+        try:
+            api_football_id = int(player.api_football_id)
+        except ValueError:
+            continue
+        entry = api_football.get_player_by_id(api_football_id)
+        if entry is None:
+            continue
+        # Intenzionalmente non sovrascrive i campi principali (li gestiscono
+        # ormai Transfermarkt/Sofascore): questo step resta un semplice hook
+        # per usi futuri (es. formazioni) su dati che non tocchiamo altrove.
+        logger.debug("API-Football legacy: dati disponibili per player_id=%s", player.id)

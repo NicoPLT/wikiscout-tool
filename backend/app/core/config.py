@@ -31,10 +31,21 @@ class Settings(BaseSettings):
     NIGHTLY_JOB_HOUR: int = 3
     NIGHTLY_JOB_MINUTE: int = 0
 
-    # External API keys (Fase B - opzionali, se assenti i job restano "spenti")
-    API_FOOTBALL_KEY: str | None = None
+    # Apify (usato per il valore di mercato Transfermarkt - non toccato)
     APIFY_TOKEN: str | None = None
+
+    # API-Football: NON e' piu' una dipendenza primaria (ricerca/statistiche
+    # ora vengono da Transfermarkt/Sofascore). Il modulo resta disponibile in
+    # app/services/providers/api_football.py come fonte legacy/opzionale,
+    # spenta di default: va accesa esplicitamente se in futuro serve per dati
+    # che Transfermarkt/Sofascore non coprono bene (es. formazioni).
+    ENABLE_API_FOOTBALL: bool = False
+    API_FOOTBALL_KEY: str | None = None
     API_FOOTBALL_DAILY_LIMIT: int = 100
+
+    # Scraping Sofascore (via Playwright): pausa minima tra una richiesta e
+    # l'altra per non sovraccaricare il sito ed evitare blocchi IP.
+    SOFASCORE_REQUEST_DELAY_SECONDS: float = 1.5
 
     @property
     def cors_origins_list(self) -> list[str]:

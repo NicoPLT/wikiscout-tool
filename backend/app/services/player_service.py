@@ -8,6 +8,7 @@ chi popola le tabelle, non come vengono lette. Frontend e modello dati non
 vanno mai toccati passando da A a B.
 """
 
+import re
 from datetime import date, datetime, timezone
 
 from sqlalchemy import select
@@ -26,7 +27,7 @@ from app.schemas.player import (
     RecentUpdateItem,
     WatchlistSummary,
 )
-from app.scrapers import api_football
+from app.scrapers import sofascore, transfermarkt
 from app.services.cache_service import cache_delete_prefix, cache_get, cache_set
 
 WATCHLIST_CACHE_PREFIX = "watchlist:user:"
@@ -116,8 +117,9 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
 
 def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSearchResult]:
     """Autocomplete: unisce i giocatori gia' nel nostro DB con una ricerca live
-    su API-Football, cosi' lo scout puo' trovare e aggiungere QUALSIASI
-    giocatore reale, non solo quelli gia' importati.
+    su Transfermarkt, cosi' lo scout puo' trovare e aggiungere QUALSIASI
+    giocatore reale, non solo quelli gia' importati. Nessun vincolo di
+    stagione (a differenza della vecchia integrazione API-Football).
     """
     stmt = select(Player).where(Player.full_name.ilike(f"%{query}%")).limit(20)
     local_players = db.execute(stmt).scalars().all()
@@ -125,8 +127,8 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
     watchlisted_ids = set(
         db.execute(select(Watchlist.player_id).where(Watchlist.user_id == user_id)).scalars().all()
     )
-    known_api_football_ids = set(
-        db.execute(select(Player.api_football_id).where(Player.api_football_id.is_not(None))).scalars().all()
+    known_transfermarkt_ids = set(
+        db.execute(select(Player.transfermarkt_id).where(Player.transfermarkt_id.is_not(None))).scalars().all()
     )
 
     results = [
@@ -142,20 +144,20 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
         for p in local_players
     ]
 
-    if len(query.strip()) >= 3:
-        for candidate in api_football.search_players(query):
-            af_id = str(candidate["id"])
-            if af_id in known_api_football_ids:
+    if len(query.strip()) >= 2:
+        for candidate in transfermarkt.search_players_transfermarkt(query):
+            tm_id = candidate["transfermarkt_id"]
+            if tm_id in known_transfermarkt_ids:
                 continue  # gia' rappresentato tra i risultati locali
 
             results.append(
                 PlayerSearchResult(
-                    source="api_football",
-                    api_football_id=af_id,
-                    full_name=candidate["name"],
-                    current_team=candidate["team"],
-                    league=candidate["league"],
-                    photo_url=candidate["photo"],
+                    source="transfermarkt",
+                    transfermarkt_id=tm_id,
+                    full_name=candidate["full_name"],
+                    current_team=candidate["current_team"],
+                    league=None,
+                    photo_url=candidate["photo_url"],
                     in_watchlist=False,
                 )
             )
@@ -163,58 +165,42 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
     return results[:20]
 
 
-def import_player_from_api_football(db: Session, user_id: int, api_football_id: str) -> Player | None:
-    """Crea (se non esiste) un giocatore reale a partire dal suo id API-Football,
-    con statistiche stagionali reali e le ultime 5 partite reali, poi lo
-    aggiunge alla watchlist. Ritorna None se API-Football non e' configurata
-    o il giocatore non viene trovato.
+def import_player_from_transfermarkt(db: Session, user_id: int, transfermarkt_id: str) -> Player | None:
+    """Crea (se non esiste) un giocatore reale a partire dal suo id
+    Transfermarkt (trovato in ricerca), poi prova a risolvere il mapping
+    Sofascore per nome+squadra e a popolare statistiche stagionali/ultime
+    partite reali. Se il mapping Sofascore fallisce o e' ambiguo, il
+    giocatore viene comunque aggiunto (con dati Transfermarkt) e lo scout
+    potra' collegare Sofascore manualmente in un secondo momento.
     """
     existing = db.execute(
-        select(Player).where(Player.api_football_id == api_football_id)
+        select(Player).where(Player.transfermarkt_id == transfermarkt_id)
     ).scalar_one_or_none()
     if existing is not None:
         add_to_watchlist(db, user_id, existing.id, None, None)
         return existing
 
-    entry = api_football.get_player_by_id(int(api_football_id))
-    if entry is None:
+    candidates = transfermarkt.search_players_transfermarkt(transfermarkt_id)
+    match = next((c for c in candidates if c["transfermarkt_id"] == transfermarkt_id), None)
+    if match is None:
         return None
 
-    snapshot = api_football.build_player_snapshot(entry)
-
-    dob = None
-    if snapshot["date_of_birth"]:
-        try:
-            dob = date.fromisoformat(snapshot["date_of_birth"])
-        except ValueError:
-            dob = None
-
     player = Player(
-        full_name=snapshot["full_name"],
-        date_of_birth=dob,
-        nationality=snapshot["nationality"],
-        position=snapshot["position"],
-        current_team=snapshot["current_team"],
-        league=snapshot["league"],
-        photo_url=snapshot["photo_url"],
-        api_football_id=api_football_id,
-        is_xg_covered=snapshot["is_xg_covered"],
-        goals_season=snapshot["goals_season"],
-        assists_season=snapshot["assists_season"],
-        appearances_season=snapshot["appearances_season"],
-        minutes_season=snapshot["minutes_season"],
-        stats_updated_at=datetime.now(timezone.utc),
+        full_name=match["full_name"],
+        nationality=match["nationality"],
+        position=match["position"],
+        current_team=match["current_team"],
+        photo_url=match["photo_url"],
+        transfermarkt_id=transfermarkt_id,
+        market_value_eur=match["market_value_eur"],
+        market_value_updated_at=datetime.now(timezone.utc) if match["market_value_eur"] is not None else None,
         last_synced_at=datetime.now(timezone.utc),
     )
     db.add(player)
     db.flush()
 
-    team_id = snapshot.get("team_id")
-    if team_id:
-        recent_matches = _fetch_recent_match_rows(player, team_id)
-        db.add_all(recent_matches)
-        db.flush()
-        _recompute_last5(player, recent_matches)
+    with sofascore.SofascoreSession() as session:
+        link_sofascore_profile(db, session, player)
 
     db.commit()
     db.refresh(player)
@@ -223,59 +209,123 @@ def import_player_from_api_football(db: Session, user_id: int, api_football_id: 
     return player
 
 
-def _fetch_recent_match_rows(player: Player, team_id: int) -> list[PlayerStatsMatch]:
-    """Chiamata una tantum (costo accettabile solo all'aggiunta in watchlist):
-    recupera le ultime 5 partite della squadra e ne estrae le statistiche del
-    singolo giocatore, se ha giocato.
+def link_sofascore_profile(db: Session, session: "sofascore.SofascoreSession", player: Player) -> bool:
+    """Prova a risolvere e collegare il profilo Sofascore di `player` (per
+    nome+squadra attuale) e, se riesce, popola subito statistiche stagionali
+    e ultime partite reali. Ritorna True se il collegamento e' riuscito.
+    Ambiguo/non trovato -> non tocca nulla, il chiamante decide come gestirlo
+    (import automatico: lascia N/D; link manuale: segnala allo scout).
     """
-    rows: list[PlayerStatsMatch] = []
-    fixtures = api_football.get_team_recent_fixtures(team_id, last=5)
+    if not session.ok:
+        return False
 
-    for fixture in fixtures:
-        fixture_id = fixture.get("fixture", {}).get("id")
-        match_date = api_football.fixture_match_date(fixture)
-        if fixture_id is None or match_date is None:
-            continue
+    candidates = sofascore.search_players(session, player.full_name)
+    match = _best_sofascore_match(candidates, player.current_team)
+    if match is None:
+        return False
 
-        stats = api_football.get_fixture_player_stats(fixture_id, int(player.api_football_id))
-        if stats is None:
-            continue
+    return _apply_sofascore_link(db, session, player, match["id"])
 
-        games = stats.get("statistics", [{}])[0].get("games", {}) if stats.get("statistics") else {}
-        goals = stats.get("statistics", [{}])[0].get("goals", {}) if stats.get("statistics") else {}
-        teams = fixture.get("teams", {})
-        is_home = (teams.get("home", {}) or {}).get("id") == team_id
 
-        rating_raw = games.get("rating")
-        rating = float(rating_raw) if rating_raw else None
+def _best_sofascore_match(candidates: list[dict], current_team: str | None) -> dict | None:
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    if not current_team:
+        return None  # piu' di un omonimo e nessuna squadra per disambiguare: ambiguo
 
-        rows.append(
+    team_lower = current_team.strip().lower()
+    team_matches = [
+        c for c in candidates if c.get("team") and (team_lower in c["team"].lower() or c["team"].lower() in team_lower)
+    ]
+    if len(team_matches) == 1:
+        return team_matches[0]
+    return None  # 0 o piu' di 1 match per squadra: resta ambiguo, non indoviniamo
+
+
+def _apply_sofascore_link(db: Session, session: "sofascore.SofascoreSession", player: Player, sofascore_id: int) -> bool:
+    player.sofascore_id = str(sofascore_id)
+
+    season_stats = sofascore.get_season_stats(session, sofascore_id)
+    if season_stats:
+        player.league = season_stats["league"] or player.league
+        player.current_team = season_stats["current_team"] or player.current_team
+        player.goals_season = season_stats["goals_season"]
+        player.assists_season = season_stats["assists_season"]
+        player.appearances_season = season_stats["appearances_season"]
+        player.minutes_season = season_stats["minutes_season"]
+        player.is_xg_covered = season_stats["xg_season"] is not None
+        if season_stats["xg_season"] is not None:
+            player.xg_season = season_stats["xg_season"]
+        if season_stats["xa_season"] is not None:
+            player.xa_season = season_stats["xa_season"]
+        player.stats_updated_at = datetime.now(timezone.utc)
+
+    recent_matches = sofascore.get_recent_matches(session, sofascore_id, limit=5)
+    if recent_matches:
+        existing_refs = {
+            ref
+            for ref in db.execute(
+                select(PlayerStatsMatch.external_ref).where(PlayerStatsMatch.player_id == player.id)
+            ).scalars()
+            if ref
+        }
+        new_rows = [
             PlayerStatsMatch(
                 player_id=player.id,
-                match_date=match_date,
-                competition=fixture.get("league", {}).get("name") or player.league or "N/D",
-                opponent=(teams.get("away") if is_home else teams.get("home") or {}).get("name"),
-                is_home=is_home,
-                minutes_played=games.get("minutes") or 0,
-                goals=goals.get("total") or 0,
-                assists=goals.get("assists") or 0,
-                rating=rating,
-                source="api_football",
-                external_ref=str(fixture_id),
+                match_date=m["match_date"],
+                competition=m["competition"],
+                opponent=m["opponent"],
+                is_home=m["is_home"],
+                minutes_played=m["minutes_played"],
+                goals=m["goals"],
+                assists=m["assists"],
+                rating=m["rating"],
+                source="sofascore",
+                external_ref=m["external_ref"],
             )
-        )
+            for m in recent_matches
+            if m["external_ref"] not in existing_refs
+        ]
+        if new_rows:
+            db.add_all(new_rows)
+            db.flush()
 
-    return rows
+        rated = [m["rating"] for m in recent_matches if m["rating"] is not None]
+        if rated:
+            player.rating_avg = round(sum(rated) / len(rated), 2)
+            player.rating_updated_at = datetime.now(timezone.utc)
+
+        player.goals_last5 = sum(m["goals"] for m in recent_matches[:5])
+        player.assists_last5 = sum(m["assists"] for m in recent_matches[:5])
+
+    return True
 
 
-def _recompute_last5(player: Player, matches: list[PlayerStatsMatch]) -> None:
-    last5 = sorted(matches, key=lambda m: m.match_date, reverse=True)[:5]
-    player.goals_last5 = sum(m.goals for m in last5)
-    player.assists_last5 = sum(m.assists for m in last5)
-    rated = [m.rating for m in matches if m.rating is not None]
-    if rated:
-        player.rating_avg = round(sum(rated) / len(rated), 2)
-        player.rating_updated_at = datetime.now(timezone.utc)
+def link_sofascore_manual(db: Session, user_id: int, player_id: int, sofascore_url_or_id: str) -> Player | None:
+    """Collegamento manuale (fallback quando l'auto-match fallisce/e' ambiguo):
+    lo scout incolla l'URL del profilo Sofascore corretto (o il solo id
+    numerico finale), e ricalcoliamo subito statistiche/ultime partite reali.
+    """
+    player = db.get(Player, player_id)
+    if player is None:
+        return None
+
+    digits = re.search(r"(\d+)\D*$", sofascore_url_or_id.strip())
+    if not digits:
+        return None
+    sofascore_id = int(digits.group(1))
+
+    with sofascore.SofascoreSession() as session:
+        ok = _apply_sofascore_link(db, session, player, sofascore_id)
+    if not ok:
+        return None
+
+    db.commit()
+    db.refresh(player)
+    invalidate_watchlist_cache(user_id)
+    return player
 
 
 def add_to_watchlist(db: Session, user_id: int, player_id: int, notes: str | None, tags: list[str] | None) -> Watchlist:

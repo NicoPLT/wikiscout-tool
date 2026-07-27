@@ -1,18 +1,17 @@
-"""Integrazione API-Football (Fase B, attiva).
+"""Integrazione API-Football — fonte LEGACY/OPZIONALE, spenta di default.
 
-Finche' API_FOOTBALL_KEY non e' configurata, ogni funzione logga un warning e
-ritorna None/[] senza rompere l'app. Con la chiave configurata, queste
-funzioni interrogano davvero l'API e restituiscono dati reali (nomi, squadre,
-campionati, statistiche partita per partita).
+Storia: questo modulo era la fonte primaria di ricerca/statistiche, ma il
+piano gratuito di API-Football rifiuta le stagioni 2025/2026 ("Free plans do
+not have access to this season"), rendendo la ricerca giocatori inaffidabile
+per chiunque non fosse gia' nei dati mock. Ricerca e statistiche di base sono
+state spostate su Transfermarkt (`app/scrapers/transfermarkt.py`) e Sofascore
+(`app/scrapers/sofascore.py`), che non hanno questo limite.
 
-Note sui limiti del piano gratuito (100 richieste/giorno):
-- la ricerca giocatori (`search_players`) viene messa in cache su Redis per
-  ridurre le chiamate ripetute sulla stessa query;
-- il recupero delle ultime 5 partite in dettaglio (`get_team_recent_fixtures`
-  + `get_fixture_player_stats`) viene fatto solo all'aggiunta di un giocatore
-  alla watchlist (costo una tantum), non ad ogni ricerca;
-- il job notturno fa al massimo 2 chiamate per giocatore per controllare se
-  ha giocato nelle ultime 48h.
+Questo modulo resta disponibile per eventuali usi futuri (es. formazioni,
+dati che Transfermarkt/Sofascore non strutturano bene) ma NON e' piu' nel
+percorso critico: e' attivo solo se ENABLE_API_FOOTBALL=true in .env, oltre
+alla chiave. Di default e' spento e nessuna funzione qui viene chiamata dal
+job notturno ne' dall'autocomplete.
 """
 
 import json
@@ -37,9 +36,7 @@ SEARCH_CACHE_TTL_SECONDS = 6 * 60 * 60  # 6 ore
 # ne' a quella appena passata (solo 2022-2024 al momento in cui e' stato
 # scritto questo modulo): ogni richiesta con season >= 2025 torna una risposta
 # HTTP 200 ma con errors.plan valorizzato e response vuoto. Se succede,
-# ripieghiamo sull'ultima stagione che il piano free copre di sicuro, cosi'
-# l'autocomplete/import continuano a funzionare con gli ultimi dati reali
-# disponibili invece di non trovare mai nulla.
+# ripieghiamo sull'ultima stagione che il piano free copre di sicuro.
 FREE_PLAN_MAX_SEASON = 2024
 
 # Campionati coperti da Understat per xG/xA (Top 5 europei)
@@ -54,7 +51,9 @@ POSITION_MAP = {
 
 
 def is_configured() -> bool:
-    return bool(settings.API_FOOTBALL_KEY)
+    """True solo se ENABLE_API_FOOTBALL=true E la chiave e' impostata:
+    questa fonte e' legacy/opzionale e va accesa esplicitamente."""
+    return settings.ENABLE_API_FOOTBALL and bool(settings.API_FOOTBALL_KEY)
 
 
 def current_season() -> int:

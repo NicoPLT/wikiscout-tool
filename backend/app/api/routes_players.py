@@ -8,6 +8,7 @@ from app.schemas.player import (
     PlayerDetail,
     PlayerRow,
     PlayerSearchResult,
+    SofascoreLinkRequest,
     WatchlistAddRequest,
     WatchlistImportRequest,
     WatchlistSummary,
@@ -48,19 +49,43 @@ def add_to_watchlist(
 
 
 @router.post("/watchlist/import", response_model=PlayerRow, status_code=status.HTTP_201_CREATED)
-def import_from_api_football(
+def import_from_transfermarkt(
     payload: WatchlistImportRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PlayerRow:
-    """Importa un giocatore reale trovato via API-Football (non ancora nel
-    nostro DB) e lo aggiunge subito alla watchlist con dati reali.
+    """Importa un giocatore reale trovato via Transfermarkt (non ancora nel
+    nostro DB) e lo aggiunge subito alla watchlist, provando anche a
+    collegare Sofascore per rating/xG/xA/statistiche stagionali.
     """
-    player = player_service.import_player_from_api_football(db, current_user.id, payload.api_football_id)
+    player = player_service.import_player_from_transfermarkt(db, current_user.id, payload.transfermarkt_id)
     if player is None:
         raise HTTPException(
             status_code=502,
-            detail="Impossibile importare il giocatore da API-Football (chiave non configurata o giocatore non trovato)",
+            detail="Impossibile importare il giocatore da Transfermarkt (giocatore non trovato)",
+        )
+    row = player_service.get_player_detail(db, current_user.id, player.id)
+    assert row is not None
+    return row
+
+
+@router.post("/players/{player_id}/sofascore-link", response_model=PlayerRow)
+def link_sofascore(
+    player_id: int,
+    payload: SofascoreLinkRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PlayerRow:
+    """Collegamento manuale al profilo Sofascore corretto, per i casi in cui
+    il matching automatico per nome+squadra fallisce o e' ambiguo (omonimie).
+    """
+    player = player_service.link_sofascore_manual(
+        db, current_user.id, player_id, payload.sofascore_url_or_id
+    )
+    if player is None:
+        raise HTTPException(
+            status_code=422,
+            detail="URL/id Sofascore non valido o profilo senza statistiche disponibili",
         )
     row = player_service.get_player_detail(db, current_user.id, player.id)
     assert row is not None

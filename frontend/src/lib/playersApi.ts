@@ -32,8 +32,15 @@ export async function addToWatchlist(playerId: number, notes?: string, tags?: st
   return data
 }
 
-export async function importPlayerFromApiFootball(apiFootballId: string): Promise<PlayerRow> {
-  const { data } = await api.post<PlayerRow>('/api/watchlist/import', { api_football_id: apiFootballId })
+export async function importPlayerFromTransfermarkt(transfermarktId: string): Promise<PlayerRow> {
+  const { data } = await api.post<PlayerRow>('/api/watchlist/import', { transfermarkt_id: transfermarktId })
+  return data
+}
+
+export async function linkSofascoreProfile(playerId: number, sofascoreUrlOrId: string): Promise<PlayerRow> {
+  const { data } = await api.post<PlayerRow>(`/api/players/${playerId}/sofascore-link`, {
+    sofascore_url_or_id: sofascoreUrlOrId,
+  })
   return data
 }
 

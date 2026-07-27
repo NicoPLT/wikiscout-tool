@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { addToWatchlist, importPlayerFromApiFootball, searchPlayers } from '../../lib/playersApi'
+import { addToWatchlist, importPlayerFromTransfermarkt, searchPlayers } from '../../lib/playersApi'
 import type { PlayerSearchResult } from '../../types/player'
 
 interface HeaderProps {
@@ -8,7 +8,7 @@ interface HeaderProps {
 }
 
 function resultKey(player: PlayerSearchResult): string {
-  return `${player.source}-${player.id ?? player.api_football_id}`
+  return `${player.source}-${player.id ?? player.transfermarkt_id}`
 }
 
 export function Header({ userEmail, onPlayerAdded }: HeaderProps) {
@@ -56,8 +56,8 @@ export function Header({ userEmail, onPlayerAdded }: HeaderProps) {
     try {
       if (player.source === 'local' && player.id !== null) {
         await addToWatchlist(player.id)
-      } else if (player.api_football_id) {
-        await importPlayerFromApiFootball(player.api_football_id)
+      } else if (player.transfermarkt_id) {
+        await importPlayerFromTransfermarkt(player.transfermarkt_id)
       }
       setResults((prev) => prev.map((r) => (resultKey(r) === key ? { ...r, in_watchlist: true } : r)))
       onPlayerAdded()

@@ -112,12 +112,12 @@ class WatchlistUpdateRequest(BaseModel):
 class PlayerSearchResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    # "local": gia' presente nel nostro DB (id popolato). "api_football": trovato
-    # in tempo reale su API-Football ma non ancora importato (id assente,
-    # api_football_id popolato) -> il frontend deve chiamare /watchlist/import.
+    # "local": gia' presente nel nostro DB (id popolato). "transfermarkt": trovato
+    # in tempo reale su Transfermarkt ma non ancora importato (id assente,
+    # transfermarkt_id popolato) -> il frontend deve chiamare /watchlist/import.
     source: str = "local"
     id: int | None = None
-    api_football_id: str | None = None
+    transfermarkt_id: str | None = None
     full_name: str
     current_team: str | None
     league: str | None
@@ -126,4 +126,10 @@ class PlayerSearchResult(BaseModel):
 
 
 class WatchlistImportRequest(BaseModel):
-    api_football_id: str
+    transfermarkt_id: str
+
+
+class SofascoreLinkRequest(BaseModel):
+    """Collegamento manuale: URL del profilo Sofascore (o solo l'id numerico)."""
+
+    sofascore_url_or_id: str

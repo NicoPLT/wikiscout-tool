@@ -63,9 +63,9 @@ export interface PlayerDetail extends PlayerRow {
 }
 
 export interface PlayerSearchResult {
-  source: 'local' | 'api_football'
+  source: 'local' | 'transfermarkt'
   id: number | null
-  api_football_id: string | null
+  transfermarkt_id: string | null
   full_name: string
   current_team: string | null
   league: string | null
