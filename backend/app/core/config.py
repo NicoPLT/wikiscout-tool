@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # l'altra per non sovraccaricare il sito ed evitare blocchi IP.
     SOFASCORE_REQUEST_DELAY_SECONDS: float = 1.5
 
+    # Client diretto verso l'API interna di Transfermarkt
+    # (tmapi.transfermarkt.technology): stessa logica di pausa prudente,
+    # anche se qui non c'e' un browser di mezzo.
+    TRANSFERMARKT_PERFORMANCE_REQUEST_DELAY_SECONDS: float = 1.0
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
