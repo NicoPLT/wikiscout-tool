@@ -100,6 +100,17 @@ def get_watchlist_rows(db: Session, user_id: int, use_cache: bool = True) -> lis
         .options(selectinload(Watchlist.player), selectinload(Watchlist.tag))
     )
     entries = db.execute(stmt).scalars().all()
+
+    # Risolta qui (non solo aprendo la singola scheda) cosi' l'eta' compare
+    # in anteprima per tutta la watchlist in dashboard, non solo per i
+    # giocatori gia' visitati singolarmente. Costo contenuto: una sola volta
+    # per giocatore (persistita), e comunque protetto dalla cache qui sopra.
+    changed = False
+    for entry in entries:
+        changed = resolve_date_of_birth(entry.player) or changed
+    if changed:
+        db.commit()
+
     rows = [_player_to_row(entry.player, entry) for entry in entries]
 
     cache_set(cache_key, [row.model_dump() for row in rows])
