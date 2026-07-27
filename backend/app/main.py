@@ -8,6 +8,7 @@ from app.api.routes_auth import router as auth_router
 from app.api.routes_players import router as players_router
 from app.core.config import get_settings
 from app.core.scheduler import start_scheduler, stop_scheduler
+from app.db import base  # noqa: F401  # registra tutti i modelli per SQLAlchemy (relationship string lookups)
 
 logging.basicConfig(level=logging.INFO)
 settings = get_settings()
