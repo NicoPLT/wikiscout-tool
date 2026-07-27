@@ -43,6 +43,14 @@ class Player(Base):
     assists_season: Mapped[int] = mapped_column(Integer, default=0)
     appearances_season: Mapped[int] = mapped_column(Integer, default=0)
     minutes_season: Mapped[int] = mapped_column(Integer, default=0)
+    # Etichetta della stagione a cui si riferiscono goals_season/assists_season/
+    # appearances_season/minutes_season (es. "25/26"). Non e' sempre la
+    # stagione "in corso": se il giocatore non ha ancora giocato nella
+    # stagione corrente (trasferimento recente, stagione appena iniziata,
+    # infortunio), questi campi ricadono sull'ultima stagione con dati
+    # reali, ed e' importante mostrare allo scout a quale stagione si
+    # riferiscono i numeri invece di lasciarlo intuire.
+    season_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
     rating_avg: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
     xg_season: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     xa_season: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)

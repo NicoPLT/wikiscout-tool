@@ -70,6 +70,7 @@ class MatchPerformance(BaseModel):
 
 class SeasonSummary(BaseModel):
     season_id: int
+    season_label: str
     competition_id: str
     competition_name: str | None = None
     club_id: str | None = None
@@ -217,55 +218,91 @@ def get_recent_matches(player_id: str, limit: int = 5) -> list[MatchPerformance]
     return matches
 
 
-def get_season_summary(player_id: str, current_club_id: str) -> SeasonSummary | None:
-    """Aggregato stagione corrente per il campionato domestico principale
-    del club attuale del giocatore (non coppe, non nazionale)."""
-    games = [g for g in get_all_games(player_id) if _was_played(g)]
-    if not games:
-        return None
+def _pick_competition_for_season(season_games: list[dict], primary_competition_id: str | None) -> str:
+    if primary_competition_id and any(
+        g["gameInformation"]["competitionId"] == primary_competition_id for g in season_games
+    ):
+        return primary_competition_id
+    # fallback: nessun dato ufficiale sul campionato principale (o il
+    # giocatore non ha ancora giocato quella competizione in questa
+    # stagione) -> usa la competizione con piu' presenze tra quelle
+    # giocate con la squadra in questa stagione.
+    counts: dict[str, int] = {}
+    for g in season_games:
+        cid = g["gameInformation"]["competitionId"]
+        counts[cid] = counts.get(cid, 0) + 1
+    return max(counts, key=counts.get)
 
-    current_season = max(g["gameInformation"]["seasonId"] for g in games)
 
-    club_games = [
+def list_season_options(player_id: str, current_club_id: str, max_seasons: int = 6) -> list[SeasonSummary]:
+    """Elenco delle ultime `max_seasons` stagioni per cui il giocatore ha
+    davvero giocato con `current_club_id` (piu' recente prima), ciascuna con
+    il campionato domestico principale gia' scelto. Usato sia per
+    l'aggregato 'stagione corrente' (get_season_summary = il primo elemento)
+    sia per il selettore stagioni in UI, cosi' lo scout puo' vedere anche
+    l'ultima stagione con dati reali quando quella in corso non ne ha ancora
+    (giocatore appena trasferito, stagione appena iniziata, infortunio, ecc.),
+    esattamente come mostrano Sofascore/Transfermarkt stessi con il loro
+    menu a tendina delle stagioni.
+    """
+    games = [
         g
-        for g in games
-        if g["gameInformation"]["seasonId"] == current_season
+        for g in get_all_games(player_id)
+        if _was_played(g)
         and not g["gameInformation"].get("isNationalGame")
         and g["clubsInformation"]["club"]["clubId"] == current_club_id
     ]
-    if not club_games:
-        return None
+    if not games:
+        return []
 
     primary_competition_id = get_club_primary_competition(current_club_id)
-    competition_id = primary_competition_id
-    if competition_id is None or not any(
-        g["gameInformation"]["competitionId"] == competition_id for g in club_games
-    ):
-        # fallback: nessun dato ufficiale sul campionato principale (o il
-        # giocatore non ha ancora giocato quella competizione questa
-        # stagione) -> usa la competizione con piu' presenze tra quelle
-        # giocate con la squadra attuale in questa stagione.
-        counts: dict[str, int] = {}
-        for g in club_games:
-            cid = g["gameInformation"]["competitionId"]
-            counts[cid] = counts.get(cid, 0) + 1
-        competition_id = max(counts, key=counts.get)
 
-    season_games = [g for g in club_games if g["gameInformation"]["competitionId"] == competition_id]
-    comp_names = resolve_competition_names({competition_id})
+    by_season: dict[int, list[dict]] = {}
+    season_labels: dict[int, str] = {}
+    for g in games:
+        season_id = g["gameInformation"]["seasonId"]
+        by_season.setdefault(season_id, []).append(g)
+        season_labels[season_id] = g["gameInformation"]["season"].get("nonCyclicalName") or str(season_id)
 
-    return SeasonSummary(
-        season_id=current_season,
-        competition_id=competition_id,
-        competition_name=comp_names.get(competition_id),
-        club_id=current_club_id,
-        appearances=len(season_games),
-        goals=sum(g["statistics"]["goalStatistics"].get("goalsScoredTotal") or 0 for g in season_games),
-        assists=sum(g["statistics"]["goalStatistics"].get("assists") or 0 for g in season_games),
-        minutes_played=sum(
-            g["statistics"]["playingTimeStatistics"].get("playedMinutes") or 0 for g in season_games
-        ),
-    )
+    ordered_season_ids = sorted(by_season.keys(), reverse=True)[:max_seasons]
+
+    picked: list[tuple[int, str, list[dict]]] = []
+    for season_id in ordered_season_ids:
+        season_games = by_season[season_id]
+        competition_id = _pick_competition_for_season(season_games, primary_competition_id)
+        comp_games = [g for g in season_games if g["gameInformation"]["competitionId"] == competition_id]
+        picked.append((season_id, competition_id, comp_games))
+
+    comp_names = resolve_competition_names({competition_id for _, competition_id, _ in picked})
+
+    return [
+        SeasonSummary(
+            season_id=season_id,
+            season_label=season_labels[season_id],
+            competition_id=competition_id,
+            competition_name=comp_names.get(competition_id),
+            club_id=current_club_id,
+            appearances=len(comp_games),
+            goals=sum(g["statistics"]["goalStatistics"].get("goalsScoredTotal") or 0 for g in comp_games),
+            assists=sum(g["statistics"]["goalStatistics"].get("assists") or 0 for g in comp_games),
+            minutes_played=sum(
+                g["statistics"]["playingTimeStatistics"].get("playedMinutes") or 0 for g in comp_games
+            ),
+        )
+        for season_id, competition_id, comp_games in picked
+    ]
+
+
+def get_season_summary(player_id: str, current_club_id: str) -> SeasonSummary | None:
+    """Aggregato per la stagione PIU' RECENTE in cui il giocatore ha
+    realmente giocato con il club attuale (campionato domestico
+    principale). Se la stagione in corso non ha ancora partite (appena
+    iniziata, trasferimento recente senza ancora un esordio, infortunio),
+    ricade automaticamente sull'ultima stagione con dati reali — stesso
+    comportamento del selettore stagioni, di cui questa funzione prende
+    semplicemente la prima voce."""
+    options = list_season_options(player_id, current_club_id, max_seasons=1)
+    return options[0] if options else None
 
 
 def get_current_club_id(player_id: str) -> str | None:

@@ -58,6 +58,7 @@ def _player_to_row(player: Player, watchlist_entry: Watchlist | None) -> PlayerR
         assists_season=player.assists_season,
         appearances_season=player.appearances_season,
         minutes_season=player.minutes_season,
+        season_label=player.season_label,
         rating_avg=float(player.rating_avg) if player.rating_avg is not None else None,
         is_xg_covered=player.is_xg_covered,
         xg_season=float(player.xg_season) if player.xg_season is not None else None,
@@ -245,6 +246,7 @@ def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
     season_summary = transfermarkt_performance.get_season_summary(player.transfermarkt_id, club_id)
     if season_summary is not None:
         player.league = season_summary.competition_name or player.league
+        player.season_label = season_summary.season_label
         player.goals_season = season_summary.goals
         player.assists_season = season_summary.assists
         player.appearances_season = season_summary.appearances
@@ -289,6 +291,25 @@ def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
         updated = True
 
     return updated
+
+
+def get_player_season_options(db: Session, player_id: int) -> list["transfermarkt_performance.SeasonSummary"]:
+    """Elenco delle ultime stagioni con dati reali per il club attuale del
+    giocatore (piu' recente prima), per il selettore stagioni nella pagina
+    di dettaglio — stesso pattern del menu a tendina di Sofascore/Transfermarkt.
+    Non scrive nulla sul giocatore: e' solo per la visualizzazione, la
+    'stagione corrente' mostrata in tabella resta quella scelta
+    automaticamente da _apply_transfermarkt_performance.
+    """
+    player = db.get(Player, player_id)
+    if player is None or not player.transfermarkt_id:
+        return []
+
+    club_id = transfermarkt_performance.get_current_club_id(player.transfermarkt_id)
+    if club_id is None:
+        return []
+
+    return transfermarkt_performance.list_season_options(player.transfermarkt_id, club_id, max_seasons=6)
 
 
 def link_sofascore_profile(db: Session, session: "sofascore.SofascoreSession", player: Player) -> bool:

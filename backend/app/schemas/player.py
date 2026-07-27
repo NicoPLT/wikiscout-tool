@@ -25,6 +25,11 @@ class PlayerRow(BaseModel):
     assists_season: int
     appearances_season: int
     minutes_season: int
+    # Stagione a cui si riferiscono i campi *_season (es. "25/26"): non e'
+    # sempre quella in corso, se il giocatore non ha ancora dati recenti
+    # (trasferimento, infortunio, stagione appena iniziata) mostra l'ultima
+    # stagione reale disponibile.
+    season_label: str | None = None
     rating_avg: float | None
 
     is_xg_covered: bool
@@ -146,3 +151,16 @@ class SofascoreLinkRequest(BaseModel):
     """Collegamento manuale: URL del profilo Sofascore (o solo l'id numerico)."""
 
     sofascore_url_or_id: str
+
+
+class PlayerSeasonOption(BaseModel):
+    """Una voce del selettore stagioni nella pagina di dettaglio (sola
+    lettura: non modifica la 'stagione corrente' salvata sul giocatore)."""
+
+    season_id: int
+    season_label: str
+    competition_name: str | None
+    appearances: int
+    goals: int
+    assists: int
+    minutes_played: int

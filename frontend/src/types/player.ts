@@ -16,6 +16,7 @@ export interface PlayerRow {
   assists_season: number
   appearances_season: number
   minutes_season: number
+  season_label: string | null
   rating_avg: number | null
 
   is_xg_covered: boolean
@@ -89,6 +90,16 @@ export interface RecentUpdateItem {
   label: string
   change_pct: number | null
   at: string
+}
+
+export interface PlayerSeasonOption {
+  season_id: number
+  season_label: string
+  competition_name: string | null
+  appearances: number
+  goals: number
+  assists: number
+  minutes_played: number
 }
 
 export interface WatchlistSummary {

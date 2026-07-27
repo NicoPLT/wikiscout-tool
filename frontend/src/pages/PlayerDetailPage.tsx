@@ -5,8 +5,8 @@ import { Card } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
-import { fetchPlayerDetail, linkSofascoreProfile, updateWatchlistEntry } from '../lib/playersApi'
-import type { PlayerDetail } from '../types/player'
+import { fetchPlayerDetail, fetchPlayerSeasons, linkSofascoreProfile, updateWatchlistEntry } from '../lib/playersApi'
+import type { PlayerDetail, PlayerSeasonOption } from '../types/player'
 import { formatCurrency, formatDate, formatPct, formatRelativeUpdate } from '../lib/format'
 
 function BackIcon() {
@@ -28,6 +28,8 @@ export function PlayerDetailPage() {
   const [sofascoreInput, setSofascoreInput] = useState('')
   const [isLinkingSofascore, setIsLinkingSofascore] = useState(false)
   const [sofascoreLinkError, setSofascoreLinkError] = useState<string | null>(null)
+  const [seasonOptions, setSeasonOptions] = useState<PlayerSeasonOption[]>([])
+  const [selectedSeasonId, setSelectedSeasonId] = useState<number | null>(null)
 
   useEffect(() => {
     if (!playerId) return
@@ -35,6 +37,10 @@ export function PlayerDetailPage() {
       setPlayer(data)
       setNotes(data.watchlist_notes ?? '')
       setTagsInput((data.watchlist_tags ?? []).join(', '))
+    })
+    fetchPlayerSeasons(Number(playerId)).then((options) => {
+      setSeasonOptions(options)
+      if (options.length > 0) setSelectedSeasonId(options[0].season_id)
     })
   }, [playerId])
 
@@ -81,6 +87,14 @@ export function PlayerDetailPage() {
   const marketFreshness = formatRelativeUpdate(player.market_value_updated_at)
   const statsFreshness = formatRelativeUpdate(player.stats_updated_at)
 
+  const displayedSeason = seasonOptions.find((o) => o.season_id === selectedSeasonId) ?? null
+  const seasonGoals = displayedSeason ? displayedSeason.goals : player.goals_season
+  const seasonAssists = displayedSeason ? displayedSeason.assists : player.assists_season
+  const seasonAppearances = displayedSeason ? displayedSeason.appearances : player.appearances_season
+  const seasonMinutes = displayedSeason ? displayedSeason.minutes_played : player.minutes_season
+  const seasonLabel = displayedSeason ? displayedSeason.season_label : player.season_label
+  const seasonCompetition = displayedSeason ? displayedSeason.competition_name : player.league
+
   return (
     <AppLayout>
       <div className="flex flex-col gap-6">
@@ -118,18 +132,39 @@ export function PlayerDetailPage() {
           </div>
         </Card>
 
+        {seasonOptions.length > 0 && (
+          <div className="flex items-center justify-between">
+            <p className="label-caption">
+              Statistiche di club {seasonCompetition ? `· ${seasonCompetition}` : ''}
+            </p>
+            <select
+              value={selectedSeasonId ?? ''}
+              onChange={(e) => setSelectedSeasonId(Number(e.target.value))}
+              className="rounded-sm border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm text-text-primary focus:border-accent-primary focus:outline-none"
+            >
+              {seasonOptions.map((o) => (
+                <option key={o.season_id} value={o.season_id}>
+                  Stagione {o.season_label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <Card>
             <p className="label-caption">Goal / Assist stagione</p>
             <p className="mt-2 text-xl text-text-primary">
-              {player.goals_season} / {player.assists_season}
+              {seasonGoals} / {seasonAssists}
             </p>
+            {seasonLabel && <p className="mt-1 text-xs text-text-muted">Stagione {seasonLabel}</p>}
           </Card>
           <Card>
             <p className="label-caption">Presenze / minuti</p>
             <p className="mt-2 text-xl text-text-primary">
-              {player.appearances_season} / {player.minutes_season}&apos;
+              {seasonAppearances} / {seasonMinutes}&apos;
             </p>
+            {seasonLabel && <p className="mt-1 text-xs text-text-muted">Stagione {seasonLabel}</p>}
           </Card>
           <Card>
             <p className="label-caption">Rating medio</p>

@@ -8,6 +8,7 @@ from app.schemas.player import (
     PlayerDetail,
     PlayerRow,
     PlayerSearchResult,
+    PlayerSeasonOption,
     SofascoreLinkRequest,
     WatchlistAddRequest,
     WatchlistImportRequest,
@@ -135,6 +136,31 @@ def search_players(
     current_user: User = Depends(get_current_user),
 ) -> list[PlayerSearchResult]:
     return player_service.search_all_players(db, current_user.id, q)
+
+
+@router.get("/players/{player_id}/seasons", response_model=list[PlayerSeasonOption])
+def get_player_seasons(
+    player_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[PlayerSeasonOption]:
+    """Ultime stagioni con dati reali per il club attuale del giocatore
+    (piu' recente prima), per il selettore stagioni nella pagina di
+    dettaglio. Sola lettura: non modifica i dati 'correnti' del giocatore.
+    """
+    options = player_service.get_player_season_options(db, player_id)
+    return [
+        PlayerSeasonOption(
+            season_id=o.season_id,
+            season_label=o.season_label,
+            competition_name=o.competition_name,
+            appearances=o.appearances,
+            goals=o.goals,
+            assists=o.assists,
+            minutes_played=o.minutes_played,
+        )
+        for o in options
+    ]
 
 
 @router.get("/players/{player_id}", response_model=PlayerDetail)

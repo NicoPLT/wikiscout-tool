@@ -4,6 +4,7 @@ import type {
   PlayerDetail,
   PlayerRow,
   PlayerSearchResult,
+  PlayerSeasonOption,
   WatchlistSummary,
 } from '../types/player'
 
@@ -42,6 +43,11 @@ export async function importPlayerFromTransfermarkt(candidate: PlayerSearchResul
     market_value_eur: candidate.market_value_eur,
     photo_url: candidate.photo_url,
   })
+  return data
+}
+
+export async function fetchPlayerSeasons(playerId: number): Promise<PlayerSeasonOption[]> {
+  const { data } = await api.get<PlayerSeasonOption[]>(`/api/players/${playerId}/seasons`)
   return data
 }
 
