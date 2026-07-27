@@ -115,10 +115,12 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
     if player is None:
         return None
 
-    # Risolto qui (non solo a import/job notturno) cosi' il bottone Fotmob
-    # compare alla prima apertura della scheda invece di aspettare il giro
-    # notturno, per i giocatori importati prima che questo link esistesse.
-    if not player.fotmob_id and resolve_fotmob_link(player):
+    # Risolti qui (non solo a import/job notturno) cosi' compaiono alla
+    # prima apertura della scheda invece di aspettare il giro notturno,
+    # per i giocatori importati prima che questi campi esistessero.
+    changed = resolve_fotmob_link(player)
+    changed = resolve_date_of_birth(player) or changed
+    if changed:
         db.commit()
 
     watchlist_entry = db.execute(
@@ -243,6 +245,7 @@ def import_player_from_transfermarkt(
     _apply_transfermarkt_performance(db, player)
     _backfill_market_value_history(db, player)
     resolve_fotmob_link(player)
+    resolve_date_of_birth(player)
 
     with sofascore.SofascoreSession() as session:
         link_sofascore_profile(db, session, player)
@@ -356,6 +359,19 @@ def _backfill_market_value_history(db: Session, player: Player) -> bool:
 
     db.add_all(new_rows)
     db.flush()
+    return True
+
+
+def resolve_date_of_birth(player: Player) -> bool:
+    """Recupera e salva la data di nascita da Transfermarkt se mancante
+    (la ricerca usata per l'import non la restituisce mai): serve per
+    calcolare l'eta' mostrata in dashboard e nella scheda giocatore."""
+    if player.date_of_birth or not player.transfermarkt_id:
+        return False
+    dob = transfermarkt_performance.get_date_of_birth(player.transfermarkt_id)
+    if not dob:
+        return False
+    player.date_of_birth = dob
     return True
 
 

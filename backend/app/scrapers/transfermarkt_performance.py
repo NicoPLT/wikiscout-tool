@@ -31,6 +31,9 @@ Endpoint usati (verificati con richieste HTTP dirette, risposta 200 pulita):
     NON tramite intercettazione di rete (il componente Svelte che disegna
     il grafico su `/marktwertverlauf/spieler/{id}` vive in uno shadow DOM
     e non e' stato possibile osservarne la chiamata di rete direttamente).
+  - /players?ids[]=...                     -> anagrafica completa, incluso
+    lifeDates.dateOfBirth (la ricerca Transfermarkt usata per l'import non
+    restituisce mai la data di nascita, quindi va recuperata qui).
 
 NOTA: e' un'API interna non documentata di Transfermarkt (diversa dal
 servizio open source self-hosted `transfermarkt-api`), quindi piu'
@@ -350,6 +353,27 @@ def get_current_club_id(player_id: str) -> str | None:
         return None
     latest = max(games, key=lambda g: g["gameInformation"]["date"]["dateTimeUTC"])
     return latest["clubsInformation"]["club"]["clubId"]
+
+
+def get_date_of_birth(player_id: str) -> date | None:
+    """Data di nascita anagrafica, usata per calcolare l'eta' del
+    giocatore. La ricerca Transfermarkt usata per l'import (schnellsuche)
+    non la restituisce mai, quindi va recuperata qui separatamente.
+    """
+    try:
+        data = _get("/players", params={"ids[]": [player_id]})
+    except httpx.HTTPError as exc:
+        logger.error("Errore fetch anagrafica per player_id=%s: %s", player_id, exc)
+        return None
+
+    players = data.get("data", [])
+    if not players:
+        return None
+
+    raw_dob = players[0].get("lifeDates", {}).get("dateOfBirth")
+    if not raw_dob:
+        return None
+    return date.fromisoformat(raw_dob[:10])
 
 
 _LOAN_TYPES = {"ACTIVE_LOAN_TRANSFER", "RETURNED_FROM_PREVIOUS_LOAN"}
