@@ -230,18 +230,30 @@ def main() -> None:
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.email == settings.AUTH_EMAIL).one_or_none()
-        if user is None:
-            if not settings.AUTH_PASSWORD_HASH:
-                print(
-                    "AUTH_PASSWORD_HASH non impostato in .env: l'utente scout verra' creato "
-                    "automaticamente al primo login (vedi README). Seed solo dei giocatori."
-                )
-            else:
-                user = User(email=settings.AUTH_EMAIL, hashed_password=settings.AUTH_PASSWORD_HASH)
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-                print(f"Creato utente scout: {user.email}")
+        if user is not None:
+            # Il seed e' pensato per il bootstrap iniziale (Fase A, prima di avere
+            # dati reali). Se l'utente scout esiste gia' vuol dire che l'ambiente
+            # e' gia' stato inizializzato (ed eventualmente lo scout ha gia'
+            # rimosso volontariamente alcuni giocatori mock dalla watchlist): non
+            # ricreare ne' ri-aggiungere nulla, altrimenti i mock rimossi
+            # "ricompaiono" a ogni riesecuzione dello script.
+            print(
+                f"Utente scout {user.email} gia' presente: ambiente gia' inizializzato, "
+                "seed saltato (nessuna modifica ai giocatori/watchlist esistenti)."
+            )
+            return
+
+        if not settings.AUTH_PASSWORD_HASH:
+            print(
+                "AUTH_PASSWORD_HASH non impostato in .env: l'utente scout verra' creato "
+                "automaticamente al primo login (vedi README). Seed solo dei giocatori."
+            )
+        else:
+            user = User(email=settings.AUTH_EMAIL, hashed_password=settings.AUTH_PASSWORD_HASH)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            print(f"Creato utente scout: {user.email}")
 
         created_players = []
         for idx, data in enumerate(PLAYERS, start=1):

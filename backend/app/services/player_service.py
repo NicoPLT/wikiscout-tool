@@ -472,6 +472,12 @@ def update_watchlist_entry(
 
 
 def remove_from_watchlist(db: Session, user_id: int, player_id: int) -> bool:
+    """Rimuove il giocatore dalla watchlist. Se nessun altro utente lo ha in
+    watchlist, elimina anche la riga players (con cascade su statistiche e
+    storico valore di mercato): una volta rimosso, non deve piu' comparire da
+    nessuna parte (dashboard, ricerca locale, ecc.), non solo sparire dalla
+    lista corrente.
+    """
     entry = db.execute(
         select(Watchlist).where(Watchlist.user_id == user_id, Watchlist.player_id == player_id)
     ).scalar_one_or_none()
@@ -479,6 +485,16 @@ def remove_from_watchlist(db: Session, user_id: int, player_id: int) -> bool:
         return False
 
     db.delete(entry)
+    db.flush()
+
+    other_owner = db.execute(
+        select(Watchlist.id).where(Watchlist.player_id == player_id)
+    ).first()
+    if other_owner is None:
+        player = db.get(Player, player_id)
+        if player is not None:
+            db.delete(player)
+
     db.commit()
     invalidate_watchlist_cache(user_id)
     return True
