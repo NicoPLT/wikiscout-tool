@@ -8,7 +8,9 @@ chi popola le tabelle, non come vengono lette. Frontend e modello dati non
 vanno mai toccati passando da A a B.
 """
 
+import logging
 import re
+import unicodedata
 from datetime import date, datetime, timezone
 
 from sqlalchemy import select
@@ -29,6 +31,8 @@ from app.schemas.player import (
 )
 from app.scrapers import sofascore, transfermarkt
 from app.services.cache_service import cache_delete_prefix, cache_get, cache_set
+
+logger = logging.getLogger(__name__)
 
 WATCHLIST_CACHE_PREFIX = "watchlist:user:"
 
@@ -232,10 +236,58 @@ def link_sofascore_profile(db: Session, session: "sofascore.SofascoreSession", p
 
     candidates = sofascore.search_players(session, player.full_name)
     match = _best_sofascore_match(candidates, player.current_team)
+    logger.info(
+        "Sofascore match per '%s' (squadra Transfermarkt='%s'): %s candidati -> scelto %s",
+        player.full_name,
+        player.current_team,
+        len(candidates),
+        match,
+    )
     if match is None:
         return False
 
     return _apply_sofascore_link(db, session, player, match["id"])
+
+
+_CLUB_NAME_STOPWORDS = {
+    "fc", "cf", "ac", "as", "sc", "cd", "sd", "ud", "afc", "cfc", "ssc",
+    "calcio", "club",
+}
+# NOTA: parole come "city"/"united"/"town"/"real" NON vanno mai messe negli
+# stopword: sono spesso l'UNICA parola che distingue due squadre diverse
+# della stessa citta' (es. Manchester City / Manchester United) — toglierle
+# farebbe erroneamente combaciare due club distinti.
+
+_CLUB_NAME_ABBREVIATIONS = {
+    "man": "manchester",
+    "utd": "united",
+    "munchen": "munich",
+    "atl": "atletico",
+    "inter": "internazionale",
+}
+
+
+def _normalize_club_name(name: str) -> set[str]:
+    """Normalizza un nome squadra in un insieme di parole significative
+    (minuscole, senza accenti, senza sigle generiche come 'FC', abbreviazioni
+    comuni espanse), per confrontare nomi scritti in modo leggermente
+    diverso tra Transfermarkt e Sofascore (es. 'Manchester City' vs
+    'Man City', 'Atletico Madrid' vs 'Atl. Madrid')."""
+    decomposed = unicodedata.normalize("NFKD", name)
+    without_accents = "".join(c for c in decomposed if not unicodedata.combining(c))
+    words = re.findall(r"[a-z0-9]+", without_accents.lower())
+    expanded = {_CLUB_NAME_ABBREVIATIONS.get(w, w) for w in words}
+    return {w for w in expanded if w not in _CLUB_NAME_STOPWORDS}
+
+
+def _teams_match(team_a: str, team_b: str) -> bool:
+    words_a = _normalize_club_name(team_a)
+    words_b = _normalize_club_name(team_b)
+    if not words_a or not words_b:
+        return False
+    # Match se le parole significative di uno sono un sottoinsieme dell'altro
+    # (gestisce sia forme abbreviate "Man City" sia nomi completi diversi).
+    return words_a <= words_b or words_b <= words_a
 
 
 def _best_sofascore_match(candidates: list[dict], current_team: str | None) -> dict | None:
@@ -246,10 +298,7 @@ def _best_sofascore_match(candidates: list[dict], current_team: str | None) -> d
     if not current_team:
         return None  # piu' di un omonimo e nessuna squadra per disambiguare: ambiguo
 
-    team_lower = current_team.strip().lower()
-    team_matches = [
-        c for c in candidates if c.get("team") and (team_lower in c["team"].lower() or c["team"].lower() in team_lower)
-    ]
+    team_matches = [c for c in candidates if c.get("team") and _teams_match(current_team, c["team"])]
     if len(team_matches) == 1:
         return team_matches[0]
     return None  # 0 o piu' di 1 match per squadra: resta ambiguo, non indoviniamo

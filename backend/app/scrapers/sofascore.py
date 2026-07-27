@@ -144,9 +144,10 @@ class SofascoreSession:
             return None
 
 
-def search_players(session: SofascoreSession, query: str, limit: int = 5) -> list[dict]:
-    """Cerca giocatori (esclude i ritirati) per nome+squadra, per il mapping
-    verso Sofascore. Ogni candidato: {id, name, slug, team, country, position}.
+def search_players(session: SofascoreSession, query: str, limit: int = 10) -> list[dict]:
+    """Cerca giocatori DI CALCIO (esclude i ritirati e gli omonimi di altri
+    sport, es. tennisti/cestisti con lo stesso nome) per il mapping verso
+    Sofascore. Ogni candidato: {id, name, slug, team, country, position}.
     """
     data = session.fetch_json(f"/api/v1/search/all?q={query}&page=0")
     if not data:
@@ -159,12 +160,18 @@ def search_players(session: SofascoreSession, query: str, limit: int = 5) -> lis
         entity = item.get("entity", {})
         if entity.get("retired"):
             continue
+
+        team = entity.get("team") or {}
+        sport_slug = (team.get("sport") or {}).get("slug")
+        if sport_slug and sport_slug != "football":
+            continue  # omonimo di un altro sport, non e' un calciatore
+
         candidates.append(
             {
                 "id": entity.get("id"),
                 "name": entity.get("name"),
                 "slug": entity.get("slug"),
-                "team": (entity.get("team") or {}).get("name"),
+                "team": team.get("name"),
                 "country": (entity.get("country") or {}).get("name"),
                 "position": entity.get("position"),
             }
