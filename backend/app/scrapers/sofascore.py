@@ -28,6 +28,7 @@ sovraccaricare il sito e ridurre il rischio di blocchi IP.
 """
 
 import logging
+import re
 import time
 from datetime import datetime, timezone
 
@@ -190,6 +191,19 @@ def _is_domestic_league(entry: dict) -> bool:
     return not any(marker in name for marker in CUP_NAME_MARKERS)
 
 
+def _season_recency_key(season: dict) -> int:
+    """Converte lo 'year' di una stagione (es. '25/26', o '2025') in un intero
+    confrontabile, per poter scegliere la stagione/il torneo piu' recente."""
+    year_str = str(season.get("year") or season.get("name") or "")
+    match = re.search(r"(\d{2,4})", year_str)
+    if not match:
+        return 0
+    year_num = int(match.group(1))
+    if year_num < 100:
+        year_num += 2000
+    return year_num
+
+
 def _pick_main_tournament(seasons_data: dict) -> tuple[dict, dict] | None:
     entries = seasons_data.get("uniqueTournamentSeasons", [])
     if not entries:
@@ -197,20 +211,29 @@ def _pick_main_tournament(seasons_data: dict) -> tuple[dict, dict] | None:
 
     league_entries = [e for e in entries if _is_domestic_league(e)] or entries
 
-    def sort_key(entry: dict) -> tuple[int, int]:
+    def sort_key(entry: dict) -> tuple[int, int, int]:
+        seasons = entry.get("seasons", [])
+        recency = _season_recency_key(seasons[0]) if seasons else 0
+
         category_slug = (entry.get("uniqueTournament", {}).get("category", {}) or {}).get("slug", "")
         try:
-            rank = TOP_LEAGUE_CATEGORY_SLUGS.index(category_slug)
+            prestige_rank = TOP_LEAGUE_CATEGORY_SLUGS.index(category_slug)
         except ValueError:
-            rank = len(TOP_LEAGUE_CATEGORY_SLUGS)
+            prestige_rank = len(TOP_LEAGUE_CATEGORY_SLUGS)
         user_count = entry.get("uniqueTournament", {}).get("userCount") or 0
-        return (rank, -user_count)
+
+        # La stagione piu' recente vince SEMPRE (altrimenti si rischia di
+        # prendere il campionato di una squadra passata solo perche' piu'
+        # blasonato, es. Premier League di anni fa invece della Serie A
+        # attuale). Prestigio/popolarita' fanno solo da spareggio tra
+        # campionati con la stessa recency (es. due big-5 nella stessa stagione).
+        return (-recency, prestige_rank, -user_count)
 
     best = min(league_entries, key=sort_key)
     seasons = best.get("seasons", [])
     if not seasons:
         return None
-    return best["uniqueTournament"], seasons[0]  # seasons[0] = la piu' recente
+    return best["uniqueTournament"], seasons[0]  # seasons[0] = la piu' recente per quel torneo
 
 
 def get_season_stats(session: SofascoreSession, sofascore_id: int) -> dict | None:
