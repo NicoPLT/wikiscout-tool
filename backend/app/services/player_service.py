@@ -122,6 +122,11 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
     changed = resolve_date_of_birth(player) or changed
     if changed:
         db.commit()
+        # La dashboard legge la watchlist da cache (fino a CACHE_TTL_SECONDS):
+        # senza invalidarla qui, un campo risolto al volo aprendo la scheda
+        # (eta', link Fotmob) non si vedrebbe in dashboard finche' la cache
+        # non scade da sola.
+        invalidate_watchlist_cache(user_id)
 
     watchlist_entry = db.execute(
         select(Watchlist).where(Watchlist.user_id == user_id, Watchlist.player_id == player_id)
