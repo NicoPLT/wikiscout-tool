@@ -1,3 +1,9 @@
+export interface Tag {
+  id: number
+  name: string
+  color: string
+}
+
 export interface PlayerRow {
   id: number
   full_name: string
@@ -25,6 +31,7 @@ export interface PlayerRow {
 
   watchlist_notes: string | null
   watchlist_tags: string[] | null
+  tag: Tag | null
 
   last_synced_at: string | null
 }

@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.tag import TagOut
+
 
 class PlayerRow(BaseModel):
     """Riga della tabella principale (stile Excel) della dashboard."""
@@ -38,6 +40,9 @@ class PlayerRow(BaseModel):
 
     watchlist_notes: str | None = None
     watchlist_tags: list[str] | None = None
+    # Tag colorato (al massimo uno) per evidenziare la riga in dashboard;
+    # None se il giocatore non ha un tag assegnato.
+    tag: TagOut | None = None
 
     last_synced_at: datetime | None
 

@@ -1,24 +1,34 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AppLayout } from '../components/layout/AppLayout'
 import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
 import { Gauge } from '../components/charts/Gauge'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
 import { RecentUpdatesList } from '../components/RecentUpdatesList'
 import { PlayersGrid } from '../components/table/PlayersGrid'
+import { TagManagerModal } from '../components/tags/TagManagerModal'
 import { fetchWatchlist, fetchWatchlistSummary } from '../lib/playersApi'
-import type { PlayerRow, WatchlistSummary } from '../types/player'
+import { fetchTags } from '../lib/tagsApi'
+import type { PlayerRow, Tag, WatchlistSummary } from '../types/player'
 import { formatCurrency } from '../lib/format'
 
 export function DashboardPage() {
   const [rows, setRows] = useState<PlayerRow[]>([])
   const [summary, setSummary] = useState<WatchlistSummary | null>(null)
+  const [tags, setTags] = useState<Tag[]>([])
+  const [isTagManagerOpen, setIsTagManagerOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     try {
-      const [watchlist, summaryData] = await Promise.all([fetchWatchlist(), fetchWatchlistSummary()])
+      const [watchlist, summaryData, tagsData] = await Promise.all([
+        fetchWatchlist(),
+        fetchWatchlistSummary(),
+        fetchTags(),
+      ])
       setRows(watchlist)
       setSummary(summaryData)
+      setTags(tagsData)
       setError(null)
     } catch {
       setError('Impossibile caricare la watchlist. Verifica che il backend sia raggiungibile.')
@@ -63,9 +73,15 @@ export function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <Card title="Watchlist" className="lg:col-span-2 flex flex-col" >
+          <Card className="lg:col-span-2 flex flex-col">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-base font-medium text-text-primary">Watchlist</h3>
+              <Button variant="secondary" onClick={() => setIsTagManagerOpen(true)} className="!px-3 !py-1.5 text-xs">
+                Gestisci tag
+              </Button>
+            </div>
             <div style={{ height: 560 }}>
-              <PlayersGrid rows={rows} onRowRemoved={loadData} />
+              <PlayersGrid rows={rows} tags={tags} onRowRemoved={loadData} onTagAssigned={loadData} />
             </div>
           </Card>
 
@@ -74,6 +90,13 @@ export function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      <TagManagerModal
+        open={isTagManagerOpen}
+        tags={tags}
+        onClose={() => setIsTagManagerOpen(false)}
+        onTagsChanged={loadData}
+      />
     </AppLayout>
   )
 }

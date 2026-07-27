@@ -30,6 +30,7 @@ from app.schemas.player import (
     RecentUpdateItem,
     WatchlistSummary,
 )
+from app.schemas.tag import TagOut
 from app.scrapers import fotmob, sofascore, transfermarkt, transfermarkt_performance
 from app.services.cache_service import cache_delete_prefix, cache_get, cache_set
 
@@ -66,6 +67,11 @@ def _player_to_row(player: Player, watchlist_entry: Watchlist | None) -> PlayerR
         xa_season=float(player.xa_season) if player.xa_season is not None else None,
         watchlist_notes=watchlist_entry.notes if watchlist_entry else None,
         watchlist_tags=watchlist_entry.tags if watchlist_entry else None,
+        tag=(
+            TagOut(id=watchlist_entry.tag.id, name=watchlist_entry.tag.name, color=watchlist_entry.tag.color)
+            if watchlist_entry and watchlist_entry.tag
+            else None
+        ),
         last_synced_at=player.last_synced_at,
     )
 
@@ -80,7 +86,7 @@ def get_watchlist_rows(db: Session, user_id: int, use_cache: bool = True) -> lis
     stmt = (
         select(Watchlist)
         .where(Watchlist.user_id == user_id)
-        .options(selectinload(Watchlist.player))
+        .options(selectinload(Watchlist.player), selectinload(Watchlist.tag))
     )
     entries = db.execute(stmt).scalars().all()
     rows = [_player_to_row(entry.player, entry) for entry in entries]

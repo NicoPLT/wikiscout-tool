@@ -19,8 +19,13 @@ class Watchlist(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(50)), nullable=True)
 
+    # Tag colorato (al massimo uno) per evidenziare la riga in dashboard.
+    # Distinto da `tags` sopra (etichette libere testuali, non colorate).
+    tag_id: Mapped[int | None] = mapped_column(ForeignKey("tags.id", ondelete="SET NULL"), nullable=True)
+
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     player: Mapped["Player"] = relationship(back_populates="watchlist_entries")
+    tag: Mapped["Tag | None"] = relationship(back_populates="watchlist_entries")

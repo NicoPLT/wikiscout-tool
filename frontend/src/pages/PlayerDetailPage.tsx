@@ -5,6 +5,7 @@ import { Card } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
+import { RatingBadge } from '../components/ui/RatingBadge'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
 import {
   fetchPlayerDetail,
@@ -249,7 +250,9 @@ export function PlayerDetailPage() {
           </Card>
           <Card>
             <p className="label-caption">Rating medio</p>
-            <p className="mt-2 text-xl text-text-primary">{player.rating_avg?.toFixed(1) ?? 'N/D'}</p>
+            <p className="mt-2 text-xl">
+              <RatingBadge rating={player.rating_avg} size="md" />
+            </p>
           </Card>
           <Card>
             <p className="label-caption">xG / xA stagione</p>
@@ -357,7 +360,9 @@ export function PlayerDetailPage() {
                     <td className="py-2.5 pr-4 text-text-primary">{match.minutes_played}&apos;</td>
                     <td className="py-2.5 pr-4 text-text-primary">{match.goals}</td>
                     <td className="py-2.5 pr-4 text-text-primary">{match.assists}</td>
-                    <td className="py-2.5 pr-4 text-text-primary">{match.rating?.toFixed(1) ?? 'N/D'}</td>
+                    <td className="py-2.5 pr-4">
+                      <RatingBadge rating={match.rating} />
+                    </td>
                     <td className="py-2.5 pr-4 text-text-primary">
                       {player.is_xg_covered ? (
                         `${match.xg?.toFixed(2) ?? '0.00'} / ${match.xa?.toFixed(2) ?? '0.00'}`

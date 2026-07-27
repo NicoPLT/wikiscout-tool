@@ -1,13 +1,14 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import {
   AllCommunityModule,
   ModuleRegistry,
   type ColDef,
+  type RowStyle,
   type SelectionChangedEvent,
 } from 'ag-grid-community'
 import { useNavigate } from 'react-router-dom'
-import type { PlayerRow } from '../../types/player'
+import type { PlayerRow, Tag } from '../../types/player'
 import { wikiscoutGridTheme } from '../../lib/agGridTheme'
 import {
   AppearancesCellRenderer,
@@ -18,6 +19,8 @@ import {
   XgXaCellRenderer,
 } from './cellRenderers'
 import { removeFromWatchlist } from '../../lib/playersApi'
+import { assignPlayerTag } from '../../lib/tagsApi'
+import { hexToRgba } from '../../lib/ratingScale'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { Button } from '../ui/Button'
 
@@ -25,7 +28,38 @@ ModuleRegistry.registerModules([AllCommunityModule])
 
 interface PlayersGridProps {
   rows: PlayerRow[]
+  tags: Tag[]
   onRowRemoved: () => void
+  onTagAssigned: () => void
+}
+
+function TagCellRenderer(props: { data?: PlayerRow; tags: Tag[]; onTagAssigned: () => void }) {
+  if (!props.data) return null
+  const player = props.data
+
+  async function handleChange(e: ChangeEvent<HTMLSelectElement>) {
+    e.stopPropagation()
+    const value = e.target.value
+    await assignPlayerTag(player.id, value === '' ? null : Number(value))
+    props.onTagAssigned()
+  }
+
+  return (
+    <select
+      value={player.tag?.id ?? ''}
+      onChange={handleChange}
+      onClick={(e) => e.stopPropagation()}
+      className="h-7 rounded-sm border-0 bg-bg-surface-hover px-2 text-xs font-medium focus:outline-none"
+      style={player.tag ? { backgroundColor: hexToRgba(player.tag.color, 0.2), color: player.tag.color } : undefined}
+    >
+      <option value="">Nessun tag</option>
+      {props.tags.map((tag) => (
+        <option key={tag.id} value={tag.id}>
+          {tag.name}
+        </option>
+      ))}
+    </select>
+  )
 }
 
 type PendingRemoval = { players: PlayerRow[] } | null
@@ -47,7 +81,7 @@ function RemoveCellRenderer(props: { data?: PlayerRow; onRequestRemove: (player:
   )
 }
 
-export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
+export function PlayersGrid({ rows, tags, onRowRemoved, onTagAssigned }: PlayersGridProps) {
   const navigate = useNavigate()
   const gridRef = useRef<AgGridReact<PlayerRow>>(null)
   const [selectedRows, setSelectedRows] = useState<PlayerRow[]>([])
@@ -167,6 +201,16 @@ export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
         filter: 'agDateColumnFilter',
       },
       {
+        headerName: 'Tag',
+        colId: 'tag',
+        minWidth: 150,
+        sortable: false,
+        filter: false,
+        cellRenderer: (p: { data?: PlayerRow }) => (
+          <TagCellRenderer data={p.data} tags={tags} onTagAssigned={onTagAssigned} />
+        ),
+      },
+      {
         headerName: '',
         colId: 'actions',
         minWidth: 100,
@@ -179,7 +223,7 @@ export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
         ),
       },
     ],
-    [],
+    [tags, onTagAssigned],
   )
 
   const defaultColDef = useMemo<ColDef>(
@@ -228,6 +272,14 @@ export function PlayersGrid({ rows, onRowRemoved }: PlayersGridProps) {
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           getRowId={(p) => String(p.data.id)}
+          getRowStyle={(params): RowStyle | undefined =>
+            params.data?.tag
+              ? {
+                  borderLeft: `3px solid ${params.data.tag.color}`,
+                  backgroundColor: hexToRgba(params.data.tag.color, 0.07),
+                }
+              : undefined
+          }
           onRowClicked={(e) => e.data && navigate(`/players/${e.data.id}`)}
           onSelectionChanged={(e: SelectionChangedEvent<PlayerRow>) => setSelectedRows(e.api.getSelectedRows())}
           rowSelection={{

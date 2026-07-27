@@ -1,6 +1,7 @@
 import type { ICellRendererParams } from 'ag-grid-community'
 import type { PlayerRow } from '../../types/player'
 import { formatCurrency, formatPct, formatRelativeUpdate } from '../../lib/format'
+import { RatingBadge } from '../ui/RatingBadge'
 
 export function PlayerNameCellRenderer(params: ICellRendererParams<PlayerRow>) {
   const player = params.data
@@ -49,11 +50,7 @@ export function AppearancesCellRenderer(params: ICellRendererParams<PlayerRow>) 
 }
 
 export function RatingCellRenderer(params: ICellRendererParams<PlayerRow>) {
-  const rating = params.data?.rating_avg
-  if (rating === null || rating === undefined) {
-    return <span className="text-text-muted">N/D</span>
-  }
-  return <span className="text-text-primary">{rating.toFixed(1)}</span>
+  return <RatingBadge rating={params.data?.rating_avg} />
 }
 
 export function XgXaCellRenderer(params: ICellRendererParams<PlayerRow>) {
