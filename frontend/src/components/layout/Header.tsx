@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { addToWatchlist, importPlayerFromTransfermarkt, searchPlayers } from '../../lib/playersApi'
 import type { PlayerSearchResult } from '../../types/player'
+import { Spinner } from '../ui/Spinner'
 
 interface HeaderProps {
   userEmail: string | null
@@ -107,13 +108,18 @@ export function Header({ userEmail, onPlayerAdded }: HeaderProps) {
                   <button
                     onClick={() => handleAdd(player)}
                     disabled={player.in_watchlist || addingKey === key}
-                    className="shrink-0 rounded-sm bg-accent-primary px-3 py-1 text-xs font-medium text-text-onaccent hover:bg-accent-hover hover:text-text-primary disabled:cursor-not-allowed disabled:bg-bg-surface-hover disabled:text-text-muted"
+                    className="flex shrink-0 items-center gap-1.5 rounded-sm bg-accent-primary px-3 py-1 text-xs font-medium text-text-onaccent hover:bg-accent-hover hover:text-text-primary disabled:cursor-not-allowed disabled:bg-bg-surface-hover disabled:text-text-muted"
                   >
-                    {player.in_watchlist
-                      ? 'In watchlist'
-                      : addingKey === key
-                        ? 'Importazione...'
-                        : '+ Aggiungi'}
+                    {player.in_watchlist ? (
+                      'In watchlist'
+                    ) : addingKey === key ? (
+                      <>
+                        <Spinner size="sm" tone="onaccent" />
+                        Importazione...
+                      </>
+                    ) : (
+                      '+ Aggiungi'
+                    )}
                   </button>
                 </div>
               )

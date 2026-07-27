@@ -9,6 +9,7 @@ from app.schemas.player import (
     PlayerRow,
     PlayerSearchResult,
     PlayerSeasonOption,
+    PlayerTransfer,
     SofascoreLinkRequest,
     WatchlistAddRequest,
     WatchlistImportRequest,
@@ -160,6 +161,34 @@ def get_player_seasons(
             minutes_played=o.minutes_played,
         )
         for o in options
+    ]
+
+
+@router.get("/players/{player_id}/transfers", response_model=list[PlayerTransfer])
+def get_player_transfers(
+    player_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[PlayerTransfer]:
+    """Storico trasferimenti di carriera (piu' recente prima), per la
+    sezione dedicata nella pagina di dettaglio.
+    """
+    transfers = player_service.get_player_transfer_history(db, player_id)
+    return [
+        PlayerTransfer(
+            transfer_id=t.transfer_id,
+            transfer_date=t.transfer_date,
+            club_from_id=t.club_from_id,
+            club_from_name=t.club_from_name,
+            club_to_id=t.club_to_id,
+            club_to_name=t.club_to_name,
+            fee_eur=t.fee_eur,
+            market_value_eur=t.market_value_eur,
+            is_loan=t.is_loan,
+            is_free_transfer=t.is_free_transfer,
+            season_label=t.season_label,
+        )
+        for t in transfers
     ]
 
 

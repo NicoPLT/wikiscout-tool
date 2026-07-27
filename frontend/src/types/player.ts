@@ -92,6 +92,20 @@ export interface RecentUpdateItem {
   at: string
 }
 
+export interface PlayerTransfer {
+  transfer_id: string
+  transfer_date: string
+  club_from_id: string | null
+  club_from_name: string | null
+  club_to_id: string | null
+  club_to_name: string | null
+  fee_eur: number | null
+  market_value_eur: number | null
+  is_loan: boolean
+  is_free_transfer: boolean
+  season_label: string | null
+}
+
 export interface PlayerSeasonOption {
   season_id: number
   season_label: string

@@ -153,6 +153,22 @@ class SofascoreLinkRequest(BaseModel):
     sofascore_url_or_id: str
 
 
+class PlayerTransfer(BaseModel):
+    """Una voce dello storico trasferimenti nella pagina di dettaglio."""
+
+    transfer_id: str
+    transfer_date: date
+    club_from_id: str | None
+    club_from_name: str | None
+    club_to_id: str | None
+    club_to_name: str | None
+    fee_eur: float | None
+    market_value_eur: float | None
+    is_loan: bool
+    is_free_transfer: bool
+    season_label: str | None
+
+
 class PlayerSeasonOption(BaseModel):
     """Una voce del selettore stagioni nella pagina di dettaglio (sola
     lettura: non modifica la 'stagione corrente' salvata sul giocatore)."""

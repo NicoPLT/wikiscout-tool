@@ -4,9 +4,16 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { Card } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
+import { Spinner } from '../components/ui/Spinner'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
-import { fetchPlayerDetail, fetchPlayerSeasons, linkSofascoreProfile, updateWatchlistEntry } from '../lib/playersApi'
-import type { PlayerDetail, PlayerSeasonOption } from '../types/player'
+import {
+  fetchPlayerDetail,
+  fetchPlayerSeasons,
+  fetchPlayerTransfers,
+  linkSofascoreProfile,
+  updateWatchlistEntry,
+} from '../lib/playersApi'
+import type { PlayerDetail, PlayerSeasonOption, PlayerTransfer } from '../types/player'
 import { formatCurrency, formatDate, formatPct, formatRelativeUpdate } from '../lib/format'
 
 function BackIcon() {
@@ -30,18 +37,29 @@ export function PlayerDetailPage() {
   const [sofascoreLinkError, setSofascoreLinkError] = useState<string | null>(null)
   const [seasonOptions, setSeasonOptions] = useState<PlayerSeasonOption[]>([])
   const [selectedSeasonId, setSelectedSeasonId] = useState<number | null>(null)
+  const [isLoadingSeasons, setIsLoadingSeasons] = useState(true)
+  const [transfers, setTransfers] = useState<PlayerTransfer[]>([])
+  const [isLoadingTransfers, setIsLoadingTransfers] = useState(true)
 
   useEffect(() => {
     if (!playerId) return
+    setPlayer(null)
     fetchPlayerDetail(Number(playerId)).then((data) => {
       setPlayer(data)
       setNotes(data.watchlist_notes ?? '')
       setTagsInput((data.watchlist_tags ?? []).join(', '))
     })
-    fetchPlayerSeasons(Number(playerId)).then((options) => {
-      setSeasonOptions(options)
-      if (options.length > 0) setSelectedSeasonId(options[0].season_id)
-    })
+    setIsLoadingSeasons(true)
+    fetchPlayerSeasons(Number(playerId))
+      .then((options) => {
+        setSeasonOptions(options)
+        if (options.length > 0) setSelectedSeasonId(options[0].season_id)
+      })
+      .finally(() => setIsLoadingSeasons(false))
+    setIsLoadingTransfers(true)
+    fetchPlayerTransfers(Number(playerId))
+      .then(setTransfers)
+      .finally(() => setIsLoadingTransfers(false))
   }, [playerId])
 
   async function handleSaveNotes() {
@@ -79,7 +97,10 @@ export function PlayerDetailPage() {
   if (!player) {
     return (
       <AppLayout>
-        <p className="text-text-secondary">Caricamento...</p>
+        <div className="flex flex-col items-center justify-center gap-3 py-24">
+          <Spinner size="lg" />
+          <p className="text-sm text-text-secondary">Caricamento scheda giocatore...</p>
+        </div>
       </AppLayout>
     )
   }
@@ -131,6 +152,13 @@ export function PlayerDetailPage() {
             </div>
           </div>
         </Card>
+
+        {isLoadingSeasons && (
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <Spinner size="sm" />
+            Caricamento statistiche stagionali...
+          </div>
+        )}
 
         {seasonOptions.length > 0 && (
           <div className="flex items-center justify-between">
@@ -303,6 +331,54 @@ export function PlayerDetailPage() {
               {statsFreshness.label}
             </span>
           </p>
+        </Card>
+
+        <Card title="Trasferimenti">
+          {isLoadingTransfers ? (
+            <div className="flex items-center gap-2 py-4 text-xs text-text-muted">
+              <Spinner size="sm" />
+              Caricamento storico trasferimenti...
+            </div>
+          ) : transfers.length === 0 ? (
+            <p className="text-sm text-text-muted">Nessun trasferimento disponibile.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border-subtle text-left text-text-muted">
+                    <th className="pb-2 pr-4 font-medium">Data</th>
+                    <th className="pb-2 pr-4 font-medium">Da</th>
+                    <th className="pb-2 pr-4 font-medium">A</th>
+                    <th className="pb-2 pr-4 font-medium">Tipo</th>
+                    <th className="pb-2 pr-4 font-medium">Costo</th>
+                    <th className="pb-2 pr-4 font-medium">Valore all'epoca</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transfers.map((t) => (
+                    <tr key={t.transfer_id} className="border-b border-border-subtle last:border-b-0">
+                      <td className="py-2.5 pr-4 text-text-secondary">{formatDate(t.transfer_date)}</td>
+                      <td className="py-2.5 pr-4 text-text-primary">{t.club_from_name ?? 'N/D'}</td>
+                      <td className="py-2.5 pr-4 text-text-primary">{t.club_to_name ?? 'N/D'}</td>
+                      <td className="py-2.5 pr-4">
+                        {t.is_loan ? (
+                          <Badge tone="neutral">Prestito</Badge>
+                        ) : t.is_free_transfer ? (
+                          <Badge tone="neutral">A parametro zero</Badge>
+                        ) : (
+                          <Badge tone="neutral">Trasferimento</Badge>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-4 text-text-primary">
+                        {t.is_free_transfer ? 'Free' : formatCurrency(t.fee_eur)}
+                      </td>
+                      <td className="py-2.5 pr-4 text-text-secondary">{formatCurrency(t.market_value_eur)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </div>
     </AppLayout>

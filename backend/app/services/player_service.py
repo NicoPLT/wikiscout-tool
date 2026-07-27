@@ -312,6 +312,18 @@ def get_player_season_options(db: Session, player_id: int) -> list["transfermark
     return transfermarkt_performance.list_season_options(player.transfermarkt_id, club_id, max_seasons=6)
 
 
+def get_player_transfer_history(db: Session, player_id: int) -> list["transfermarkt_performance.TransferRecord"]:
+    """Storico trasferimenti di carriera (piu' recente prima), per la
+    scheda giocatore. Sola lettura, dato live da Transfermarkt: non viene
+    persistito sul giocatore.
+    """
+    player = db.get(Player, player_id)
+    if player is None or not player.transfermarkt_id:
+        return []
+
+    return transfermarkt_performance.get_transfer_history(player.transfermarkt_id)
+
+
 def link_sofascore_profile(db: Session, session: "sofascore.SofascoreSession", player: Player) -> bool:
     """Prova a risolvere e collegare il profilo Sofascore di `player` (per
     nome+squadra attuale) e, se riesce, popola subito statistiche stagionali

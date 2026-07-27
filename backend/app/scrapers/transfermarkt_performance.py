@@ -20,6 +20,11 @@ Endpoint usati (verificati con richieste HTTP dirette, risposta 200 pulita):
     domestico principale del club, usato per scegliere la competizione
     "principale" del giocatore in modo affidabile invece di indovinare
     per nome/popolarita').
+  - /transfer/history/player/{player_id}   -> storico trasferimenti completo
+    (scoperto intercettando la rete della pagina pubblica
+    `/transfers/spieler/{id}`): ogni voce ha club di partenza/arrivo, data,
+    costo del cartellino, valore di mercato al momento del trasferimento e
+    tipo (STANDARD / prestito / rientro da prestito / free transfer).
 
 NOTA: e' un'API interna non documentata di Transfermarkt (diversa dal
 servizio open source self-hosted `transfermarkt-api`), quindi piu'
@@ -66,6 +71,20 @@ class MatchPerformance(BaseModel):
     minutes_played: int
     goals: int
     assists: int
+
+
+class TransferRecord(BaseModel):
+    transfer_id: str
+    transfer_date: date
+    club_from_id: str | None = None
+    club_from_name: str | None = None
+    club_to_id: str | None = None
+    club_to_name: str | None = None
+    fee_eur: float | None = None
+    market_value_eur: float | None = None
+    is_loan: bool = False
+    is_free_transfer: bool = False
+    season_label: str | None = None
 
 
 class SeasonSummary(BaseModel):
@@ -320,3 +339,62 @@ def get_current_club_id(player_id: str) -> str | None:
         return None
     latest = max(games, key=lambda g: g["gameInformation"]["date"]["dateTimeUTC"])
     return latest["clubsInformation"]["club"]["clubId"]
+
+
+_LOAN_TYPES = {"ACTIVE_LOAN_TRANSFER", "RETURNED_FROM_PREVIOUS_LOAN"}
+
+
+def get_transfer_history(player_id: str) -> list[TransferRecord]:
+    """Storico completo dei trasferimenti di carriera (piu' recente prima),
+    inclusi prestiti e trasferimenti a parametro zero. I giovanili (settore
+    giovanile dello stesso club) restano inclusi cosi' come li restituisce
+    Transfermarkt: e' lo scout a valutarne la rilevanza.
+    """
+    try:
+        data = _get(f"/transfer/history/player/{player_id}")
+    except httpx.HTTPError as exc:
+        logger.error("Errore fetch transfer history per player_id=%s: %s", player_id, exc)
+        return []
+
+    entries = data.get("data", {}).get("history", {}).get("terminated", [])
+    if not entries:
+        return []
+
+    club_ids = set()
+    for entry in entries:
+        source_id = entry.get("transferSource", {}).get("clubId")
+        dest_id = entry.get("transferDestination", {}).get("clubId")
+        if source_id:
+            club_ids.add(source_id)
+        if dest_id:
+            club_ids.add(dest_id)
+    club_names = resolve_club_names(club_ids)
+
+    records = []
+    for entry in entries:
+        details = entry.get("details", {})
+        transfer_type = entry.get("typeDetails", {}).get("type", "")
+        fee = details.get("fee") or {}
+        fee_compact = fee.get("compact", {}).get("content", "")
+        market_value = details.get("marketValue") or {}
+        club_from_id = entry.get("transferSource", {}).get("clubId")
+        club_to_id = entry.get("transferDestination", {}).get("clubId")
+
+        records.append(
+            TransferRecord(
+                transfer_id=entry["id"],
+                transfer_date=details["date"][:10],
+                club_from_id=club_from_id,
+                club_from_name=club_names.get(club_from_id),
+                club_to_id=club_to_id,
+                club_to_name=club_names.get(club_to_id),
+                fee_eur=fee.get("value"),
+                market_value_eur=market_value.get("value"),
+                is_loan=transfer_type in _LOAN_TYPES,
+                is_free_transfer="free" in fee_compact.lower(),
+                season_label=details.get("season", {}).get("nonCyclicalName"),
+            )
+        )
+
+    records.sort(key=lambda r: r.transfer_date, reverse=True)
+    return records
