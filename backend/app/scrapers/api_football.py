@@ -33,6 +33,15 @@ BASE_URL = "https://v3.football.api-sports.io"
 SOURCE = "api_football"
 SEARCH_CACHE_TTL_SECONDS = 6 * 60 * 60  # 6 ore
 
+# I piani gratuiti di API-Football non hanno accesso alla stagione in corso
+# ne' a quella appena passata (solo 2022-2024 al momento in cui e' stato
+# scritto questo modulo): ogni richiesta con season >= 2025 torna una risposta
+# HTTP 200 ma con errors.plan valorizzato e response vuoto. Se succede,
+# ripieghiamo sull'ultima stagione che il piano free copre di sicuro, cosi'
+# l'autocomplete/import continuano a funzionare con gli ultimi dati reali
+# disponibili invece di non trovare mai nulla.
+FREE_PLAN_MAX_SEASON = 2024
+
 # Campionati coperti da Understat per xG/xA (Top 5 europei)
 XG_COVERED_LEAGUES = {"premier league", "la liga", "bundesliga", "serie a", "ligue 1"}
 
@@ -134,7 +143,6 @@ def search_players(query: str) -> list[dict]:
         return []
 
     profiles = data.get("response", [])[:MAX_SEARCH_CANDIDATES]
-    season = current_season()
     results: list[dict] = []
 
     for item in profiles:
@@ -143,7 +151,7 @@ def search_players(query: str) -> list[dict]:
         if player_id is None:
             continue
 
-        entry = get_player_by_id(player_id, season) or get_player_by_id(player_id, season - 1)
+        entry = get_player_by_id(player_id)
         if entry is None:
             continue
 
@@ -214,7 +222,13 @@ def get_player_by_id(api_football_id: int, season: int | None = None) -> dict | 
         return None
 
     response = data.get("response", [])
-    return response[0] if response else None
+    if response:
+        return response[0]
+
+    if "plan" in (data.get("errors") or {}) and season != FREE_PLAN_MAX_SEASON:
+        return get_player_by_id(api_football_id, FREE_PLAN_MAX_SEASON)
+
+    return None
 
 
 def get_team_recent_fixtures(team_id: int, last: int = 5) -> list[dict]:
