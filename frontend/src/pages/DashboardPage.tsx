@@ -12,7 +12,6 @@ import { formatCurrency } from '../lib/format'
 export function DashboardPage() {
   const [rows, setRows] = useState<PlayerRow[]>([])
   const [summary, setSummary] = useState<WatchlistSummary | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
@@ -23,8 +22,6 @@ export function DashboardPage() {
       setError(null)
     } catch {
       setError('Impossibile caricare la watchlist. Verifica che il backend sia raggiungibile.')
-    } finally {
-      setIsLoading(false)
     }
   }, [])
 
@@ -68,7 +65,7 @@ export function DashboardPage() {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <Card title="Watchlist" className="lg:col-span-2 flex flex-col" >
             <div style={{ height: 560 }}>
-              {!isLoading && <PlayersGrid rows={rows} onRowRemoved={loadData} />}
+              <PlayersGrid rows={rows} onRowRemoved={loadData} />
             </div>
           </Card>
 
