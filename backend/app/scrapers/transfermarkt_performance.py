@@ -25,6 +25,12 @@ Endpoint usati (verificati con richieste HTTP dirette, risposta 200 pulita):
     `/transfers/spieler/{id}`): ogni voce ha club di partenza/arrivo, data,
     costo del cartellino, valore di mercato al momento del trasferimento e
     tipo (STANDARD / prestito / rientro da prestito / free transfer).
+  - /player/{player_id}/market-value-history -> storico completo del valore
+    di mercato (uno o piu' punti all'anno, da inizio carriera a oggi):
+    trovato per tentativi (stesso stile REST di /transfer/history/...),
+    NON tramite intercettazione di rete (il componente Svelte che disegna
+    il grafico su `/marktwertverlauf/spieler/{id}` vive in uno shadow DOM
+    e non e' stato possibile osservarne la chiamata di rete direttamente).
 
 NOTA: e' un'API interna non documentata di Transfermarkt (diversa dal
 servizio open source self-hosted `transfermarkt-api`), quindi piu'
@@ -85,6 +91,11 @@ class TransferRecord(BaseModel):
     is_loan: bool = False
     is_free_transfer: bool = False
     season_label: str | None = None
+
+
+class MarketValuePoint(BaseModel):
+    recorded_at: date
+    value_eur: float
 
 
 class SeasonSummary(BaseModel):
@@ -398,3 +409,35 @@ def get_transfer_history(player_id: str) -> list[TransferRecord]:
 
     records.sort(key=lambda r: r.transfer_date, reverse=True)
     return records
+
+
+def get_market_value_history(player_id: str, years: int = 2) -> list[MarketValuePoint]:
+    """Storico valore di mercato reale (piu' vecchio prima), limitato agli
+    ultimi `years` anni: sufficiente per un grafico di trend utile senza
+    scaricare l'intera carriera ogni volta.
+    """
+    try:
+        data = _get(f"/player/{player_id}/market-value-history")
+    except httpx.HTTPError as exc:
+        logger.error("Errore fetch market-value-history per player_id=%s: %s", player_id, exc)
+        return []
+
+    entries = data.get("data", {}).get("history", [])
+    if not entries:
+        return []
+
+    cutoff = date.today().replace(year=date.today().year - years)
+    points = []
+    for entry in entries:
+        mv = entry.get("marketValue") or {}
+        determined = mv.get("determined")
+        value = mv.get("value")
+        if not determined or value is None:
+            continue
+        recorded_at = date.fromisoformat(determined[:10])
+        if recorded_at < cutoff:
+            continue
+        points.append(MarketValuePoint(recorded_at=recorded_at, value_eur=float(value)))
+
+    points.sort(key=lambda p: p.recorded_at)
+    return points

@@ -71,6 +71,7 @@ class PlayerDetail(PlayerRow):
     transfermarkt_id: str | None
     api_football_id: str | None
     sofascore_id: str | None
+    fotmob_id: str | None
 
     stats_updated_at: datetime | None
     market_value_updated_at: datetime | None

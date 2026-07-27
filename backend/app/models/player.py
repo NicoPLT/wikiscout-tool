@@ -32,6 +32,10 @@ class Player(Base):
     api_football_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     sofascore_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     understat_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Solo per il link diretto al profilo Fotmob nella scheda giocatore:
+    # nessuna statistica viene letta da Fotmob, quindi non e' mai coinvolto
+    # nel job notturno se non per risolvere/aggiornare questo id.
+    fotmob_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Il campionato del giocatore rientra tra quelli coperti da Understat (xG/xA)?
     is_xg_covered: Mapped[bool] = mapped_column(Boolean, default=False)

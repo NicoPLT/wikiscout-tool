@@ -54,6 +54,7 @@ export interface PlayerDetail extends PlayerRow {
   transfermarkt_id: string | null
   api_football_id: string | null
   sofascore_id: string | null
+  fotmob_id: string | null
 
   stats_updated_at: string | null
   market_value_updated_at: string | null

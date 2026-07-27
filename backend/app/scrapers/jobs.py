@@ -78,6 +78,8 @@ def run_nightly_update() -> None:
         for player in players:
             _update_market_value(db, player, now)
             _update_from_transfermarkt_performance(db, player, now)
+            _backfill_market_value_history(db, player)
+            _resolve_fotmob_link(db, player)
             processed += 1
 
         # Una sola sessione browser Sofascore per tutti i giocatori del giro
@@ -141,6 +143,18 @@ def _update_from_transfermarkt_performance(db: Session, player: Player, now: dat
     from app.services.player_service import _apply_transfermarkt_performance
 
     _apply_transfermarkt_performance(db, player)
+
+
+def _backfill_market_value_history(db: Session, player: Player) -> None:
+    from app.services.player_service import _backfill_market_value_history as _backfill
+
+    _backfill(db, player)
+
+
+def _resolve_fotmob_link(db: Session, player: Player) -> None:
+    from app.services.player_service import resolve_fotmob_link
+
+    resolve_fotmob_link(player)
 
 
 def _update_from_sofascore(db: Session, session: "sofascore.SofascoreSession", player: Player, now: datetime) -> None:

@@ -16,6 +16,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.market_value import PlayerMarketValueHistory
 from app.models.player import Player
 from app.models.stats import PlayerStatsMatch
 from app.models.watchlist import Watchlist
@@ -29,7 +30,7 @@ from app.schemas.player import (
     RecentUpdateItem,
     WatchlistSummary,
 )
-from app.scrapers import sofascore, transfermarkt, transfermarkt_performance
+from app.scrapers import fotmob, sofascore, transfermarkt, transfermarkt_performance
 from app.services.cache_service import cache_delete_prefix, cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
         transfermarkt_id=player.transfermarkt_id,
         api_football_id=player.api_football_id,
         sofascore_id=player.sofascore_id,
+        fotmob_id=player.fotmob_id,
         stats_updated_at=player.stats_updated_at,
         market_value_updated_at=player.market_value_updated_at,
         rating_updated_at=player.rating_updated_at,
@@ -216,6 +218,8 @@ def import_player_from_transfermarkt(
     db.flush()
 
     _apply_transfermarkt_performance(db, player)
+    _backfill_market_value_history(db, player)
+    resolve_fotmob_link(player)
 
     with sofascore.SofascoreSession() as session:
         link_sofascore_profile(db, session, player)
@@ -291,6 +295,59 @@ def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
         updated = True
 
     return updated
+
+
+def _backfill_market_value_history(db: Session, player: Player) -> bool:
+    """Inserisce nello storico i punti di valore di mercato REALI (ultimi ~2
+    anni) recuperati da Transfermarkt, cosi' il grafico di trend nella
+    scheda giocatore mostra da subito un andamento vero invece di un solo
+    punto (quello dell'import) che si arricchirebbe lentamente nel tempo coi
+    soli snapshot settimanali del job notturno. Idempotente: salta le date
+    gia' presenti, quindi rilanciarla (es. ogni notte) non duplica nulla.
+    """
+    if not player.transfermarkt_id:
+        return False
+
+    points = transfermarkt_performance.get_market_value_history(player.transfermarkt_id, years=2)
+    if not points:
+        return False
+
+    existing_dates = set(
+        db.execute(
+            select(PlayerMarketValueHistory.recorded_at).where(PlayerMarketValueHistory.player_id == player.id)
+        ).scalars()
+    )
+
+    new_rows = [
+        PlayerMarketValueHistory(
+            player_id=player.id,
+            value_eur=point.value_eur,
+            recorded_at=point.recorded_at,
+            source="transfermarkt-history",
+        )
+        for point in points
+        if point.recorded_at not in existing_dates
+    ]
+    if not new_rows:
+        return False
+
+    db.add_all(new_rows)
+    db.flush()
+    return True
+
+
+def resolve_fotmob_link(player: Player) -> bool:
+    """Prova a risolvere e collegare l'id Fotmob del giocatore, per il link
+    diretto nella scheda giocatore (sola identificazione: nessuna
+    statistica viene letta da Fotmob). Non fa nulla se gia' collegato o se
+    il match e' ambiguo (vedi fotmob.resolve_fotmob_id)."""
+    if player.fotmob_id:
+        return False
+    fotmob_id = fotmob.resolve_fotmob_id(player.full_name, player.current_team)
+    if not fotmob_id:
+        return False
+    player.fotmob_id = fotmob_id
+    return True
 
 
 def get_player_season_options(db: Session, player_id: int) -> list["transfermarkt_performance.SeasonSummary"]:

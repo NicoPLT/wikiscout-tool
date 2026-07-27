@@ -24,6 +24,37 @@ function BackIcon() {
   )
 }
 
+function ExternalLinkIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path
+        d="M18 13v6a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h6M15 3h6v6M10 14L21 3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+interface ExternalProfileLinkProps {
+  href: string
+  label: string
+}
+
+function ExternalProfileLink({ href, label }: ExternalProfileLinkProps) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-1.5 rounded-sm bg-bg-surface-hover px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-border-subtle"
+    >
+      {label}
+      <ExternalLinkIcon />
+    </a>
+  )
+}
+
 export function PlayerDetailPage() {
   const { playerId } = useParams<{ playerId: string }>()
   const navigate = useNavigate()
@@ -141,6 +172,28 @@ export function PlayerDetailPage() {
               <p className="mt-1 text-xs text-text-muted">
                 {player.nationality ?? 'N/D'} · nato il {formatDate(player.date_of_birth)}
               </p>
+              {(player.transfermarkt_id || player.sofascore_id || player.fotmob_id) && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {player.transfermarkt_id && (
+                    <ExternalProfileLink
+                      href={`https://www.transfermarkt.com/-/profil/spieler/${player.transfermarkt_id}`}
+                      label="Transfermarkt"
+                    />
+                  )}
+                  {player.sofascore_id && (
+                    <ExternalProfileLink
+                      href={`https://www.sofascore.com/player/-/${player.sofascore_id}`}
+                      label="Sofascore"
+                    />
+                  )}
+                  {player.fotmob_id && (
+                    <ExternalProfileLink
+                      href={`https://www.fotmob.com/players/${player.fotmob_id}/-`}
+                      label="Fotmob"
+                    />
+                  )}
+                </div>
+              )}
             </div>
             <div className="text-right">
               <p className="metric-value text-text-primary">{formatCurrency(player.market_value_eur)}</p>
