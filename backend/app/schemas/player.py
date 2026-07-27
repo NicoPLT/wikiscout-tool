@@ -112,9 +112,18 @@ class WatchlistUpdateRequest(BaseModel):
 class PlayerSearchResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    # "local": gia' presente nel nostro DB (id popolato). "api_football": trovato
+    # in tempo reale su API-Football ma non ancora importato (id assente,
+    # api_football_id popolato) -> il frontend deve chiamare /watchlist/import.
+    source: str = "local"
+    id: int | None = None
+    api_football_id: str | None = None
     full_name: str
     current_team: str | None
     league: str | None
     photo_url: str | None
     in_watchlist: bool = False
+
+
+class WatchlistImportRequest(BaseModel):
+    api_football_id: str

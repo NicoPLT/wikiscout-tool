@@ -9,6 +9,7 @@ from app.schemas.player import (
     PlayerRow,
     PlayerSearchResult,
     WatchlistAddRequest,
+    WatchlistImportRequest,
     WatchlistSummary,
     WatchlistUpdateRequest,
 )
@@ -43,6 +44,26 @@ def add_to_watchlist(
     row = player_service.get_player_detail(db, current_user.id, payload.player_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Giocatore non trovato")
+    return row
+
+
+@router.post("/watchlist/import", response_model=PlayerRow, status_code=status.HTTP_201_CREATED)
+def import_from_api_football(
+    payload: WatchlistImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PlayerRow:
+    """Importa un giocatore reale trovato via API-Football (non ancora nel
+    nostro DB) e lo aggiunge subito alla watchlist con dati reali.
+    """
+    player = player_service.import_player_from_api_football(db, current_user.id, payload.api_football_id)
+    if player is None:
+        raise HTTPException(
+            status_code=502,
+            detail="Impossibile importare il giocatore da API-Football (chiave non configurata o giocatore non trovato)",
+        )
+    row = player_service.get_player_detail(db, current_user.id, player.id)
+    assert row is not None
     return row
 
 

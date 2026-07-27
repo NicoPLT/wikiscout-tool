@@ -1,19 +1,28 @@
-"""Integrazione API-Football (Fase B).
+"""Integrazione API-Football (Fase B, attiva).
 
-Finche' API_FOOTBALL_KEY non e' configurata in .env, ogni funzione qui logga
-un warning e ritorna None/[] senza rompere il job notturno: questo modulo e'
-scritto e pronto, ma resta "spento" fino a quando non si ottiene la chiave
-(vedi README per dove registrarsi).
+Finche' API_FOOTBALL_KEY non e' configurata, ogni funzione logga un warning e
+ritorna None/[] senza rompere l'app. Con la chiave configurata, queste
+funzioni interrogano davvero l'API e restituiscono dati reali (nomi, squadre,
+campionati, statistiche partita per partita).
+
+Note sui limiti del piano gratuito (100 richieste/giorno):
+- la ricerca giocatori (`search_players`) viene messa in cache su Redis per
+  ridurre le chiamate ripetute sulla stessa query;
+- il recupero delle ultime 5 partite in dettaglio (`get_team_recent_fixtures`
+  + `get_fixture_player_stats`) viene fatto solo all'aggiunta di un giocatore
+  alla watchlist (costo una tantum), non ad ogni ricerca;
+- il job notturno fa al massimo 2 chiamate per giocatore per controllare se
+  ha giocato nelle ultime 48h.
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
-from app.models.player import Player
+from app.db.redis_client import redis_client
 from app.scrapers.rate_limit import is_near_limit, register_call
 
 logger = logging.getLogger(__name__)
@@ -21,10 +30,39 @@ settings = get_settings()
 
 BASE_URL = "https://v3.football.api-sports.io"
 SOURCE = "api_football"
+SEARCH_CACHE_TTL_SECONDS = 6 * 60 * 60  # 6 ore
+
+# Campionati coperti da Understat per xG/xA (Top 5 europei)
+XG_COVERED_LEAGUES = {"premier league", "la liga", "bundesliga", "serie a", "ligue 1"}
+
+POSITION_MAP = {
+    "Goalkeeper": "Portiere",
+    "Defender": "Difensore",
+    "Midfielder": "Centrocampista",
+    "Attacker": "Attaccante",
+}
 
 
 def is_configured() -> bool:
     return bool(settings.API_FOOTBALL_KEY)
+
+
+def current_season() -> int:
+    """Stagione europea corrente (es. luglio 2026 -> 2026, aprile 2026 -> 2025)."""
+    now = datetime.now(timezone.utc)
+    return now.year if now.month >= 7 else now.year - 1
+
+
+def is_covered_league(league_name: str | None) -> bool:
+    if not league_name:
+        return False
+    return league_name.strip().lower() in XG_COVERED_LEAGUES
+
+
+def map_position(position: str | None) -> str | None:
+    if not position:
+        return None
+    return POSITION_MAP.get(position, position)
 
 
 @retry(
@@ -42,28 +80,160 @@ def _get(path: str, params: dict) -> dict:
         return response.json()
 
 
-def fetch_recent_match_stats(player: Player, since: date) -> list[dict] | None:
-    """Ritorna le statistiche delle partite giocate da `since` ad oggi, o None se skip."""
-    if not is_configured():
-        logger.warning("API_FOOTBALL_KEY non configurata: salto fetch per player_id=%s", player.id)
+def pick_primary_statistics(statistics: list[dict]) -> dict | None:
+    """Sceglie la voce statistics[] piu' rilevante (piu' presenze in un campionato)."""
+    if not statistics:
         return None
+
+    league_entries = [s for s in statistics if s.get("league", {}).get("type") == "League"] or statistics
+    return max(league_entries, key=lambda s: (s.get("games", {}) or {}).get("appearences") or 0)
+
+
+def search_players(query: str) -> list[dict]:
+    """Cerca giocatori reali per nome. Ritorna una lista di {player, statistics}."""
+    if not is_configured():
+        logger.warning("API_FOOTBALL_KEY non configurata: salto ricerca giocatori")
+        return []
+
+    season = current_season()
+    cache_key = f"af_search:{query.strip().lower()}:{season}"
+    cached = redis_client.get(cache_key)
+    if cached is not None:
+        import json
+
+        return json.loads(cached)
 
     if is_near_limit(SOURCE, settings.API_FOOTBALL_DAILY_LIMIT):
-        logger.warning(
-            "Vicini al limite giornaliero API-Football (%s chiamate): salto fetch per player_id=%s",
-            settings.API_FOOTBALL_DAILY_LIMIT,
-            player.id,
-        )
+        logger.warning("Vicini al limite giornaliero API-Football: salto ricerca per '%s'", query)
+        return []
+
+    try:
+        data = _get("/players", {"search": query, "season": season})
+    except httpx.HTTPError as exc:
+        logger.error("Errore ricerca API-Football per '%s': %s", query, exc)
+        return []
+
+    results = data.get("response", [])
+
+    import json
+
+    redis_client.set(cache_key, json.dumps(results), ex=SEARCH_CACHE_TTL_SECONDS)
+    return results
+
+
+def build_player_snapshot(entry: dict) -> dict:
+    """Normalizza una entry {player, statistics} (da /players) nei campi Player."""
+    player_info = entry.get("player", {})
+    primary = pick_primary_statistics(entry.get("statistics", [])) or {}
+    team = primary.get("team", {}) or {}
+    league = primary.get("league", {}) or {}
+    games = primary.get("games", {}) or {}
+    goals = primary.get("goals", {}) or {}
+
+    full_name = player_info.get("name") or (
+        f"{player_info.get('firstname', '')} {player_info.get('lastname', '')}".strip()
+    )
+
+    return {
+        "full_name": full_name,
+        "date_of_birth": (player_info.get("birth") or {}).get("date"),
+        "nationality": player_info.get("nationality"),
+        "position": map_position(games.get("position")),
+        "photo_url": player_info.get("photo"),
+        "current_team": team.get("name"),
+        "team_id": team.get("id"),
+        "league": league.get("name"),
+        "is_xg_covered": is_covered_league(league.get("name")),
+        "goals_season": goals.get("total") or 0,
+        "assists_season": goals.get("assists") or 0,
+        "appearances_season": games.get("appearences") or 0,
+        "minutes_season": games.get("minutes") or 0,
+    }
+
+
+def get_player_by_id(api_football_id: int, season: int | None = None) -> dict | None:
+    """Rifetch di un giocatore specifico (season stats + team/league correnti)."""
+    if not is_configured():
+        logger.warning("API_FOOTBALL_KEY non configurata: salto fetch player_id=%s", api_football_id)
         return None
 
-    if not player.api_football_id:
-        logger.info("Player %s senza api_football_id, salto", player.id)
+    season = season or current_season()
+
+    if is_near_limit(SOURCE, settings.API_FOOTBALL_DAILY_LIMIT):
+        logger.warning("Vicini al limite giornaliero API-Football: salto fetch player_id=%s", api_football_id)
         return None
 
     try:
-        data = _get("/players", {"id": player.api_football_id, "season": since.year})
+        data = _get("/players", {"id": api_football_id, "season": season})
     except httpx.HTTPError as exc:
-        logger.error("Errore chiamando API-Football per player_id=%s: %s", player.id, exc)
+        logger.error("Errore fetch API-Football per player_id=%s: %s", api_football_id, exc)
         return None
 
+    response = data.get("response", [])
+    return response[0] if response else None
+
+
+def get_team_recent_fixtures(team_id: int, last: int = 5) -> list[dict]:
+    if not is_configured():
+        return []
+
+    if is_near_limit(SOURCE, settings.API_FOOTBALL_DAILY_LIMIT):
+        logger.warning("Vicini al limite giornaliero API-Football: salto fixtures team_id=%s", team_id)
+        return []
+
+    try:
+        data = _get("/fixtures", {"team": team_id, "last": last})
+    except httpx.HTTPError as exc:
+        logger.error("Errore fetch fixtures API-Football per team_id=%s: %s", team_id, exc)
+        return []
+
     return data.get("response", [])
+
+
+def get_fixture_player_stats(fixture_id: int, api_football_id: int) -> dict | None:
+    """Statistiche di UN giocatore in UNA specifica partita (goal, assist, minuti, rating, ecc.)."""
+    if not is_configured():
+        return None
+
+    if is_near_limit(SOURCE, settings.API_FOOTBALL_DAILY_LIMIT):
+        logger.warning("Vicini al limite giornaliero API-Football: salto fixture_id=%s", fixture_id)
+        return None
+
+    try:
+        data = _get("/fixtures/players", {"fixture": fixture_id})
+    except httpx.HTTPError as exc:
+        logger.error("Errore fetch fixtures/players per fixture_id=%s: %s", fixture_id, exc)
+        return None
+
+    for team_block in data.get("response", []):
+        for player_block in team_block.get("players", []):
+            if str(player_block.get("player", {}).get("id")) == str(api_football_id):
+                return player_block
+    return None
+
+
+def is_recently_finished(fixture: dict, within_hours: int = 48) -> bool:
+    status_short = fixture.get("fixture", {}).get("status", {}).get("short")
+    if status_short != "FT":
+        return False
+
+    fixture_date_str = fixture.get("fixture", {}).get("date")
+    if not fixture_date_str:
+        return False
+
+    try:
+        fixture_dt = datetime.fromisoformat(fixture_date_str.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+
+    return datetime.now(timezone.utc) - fixture_dt <= timedelta(hours=within_hours)
+
+
+def fixture_match_date(fixture: dict) -> date | None:
+    fixture_date_str = fixture.get("fixture", {}).get("date")
+    if not fixture_date_str:
+        return None
+    try:
+        return datetime.fromisoformat(fixture_date_str.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None

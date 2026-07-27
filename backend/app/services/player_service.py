@@ -8,10 +8,13 @@ chi popola le tabelle, non come vengono lette. Frontend e modello dati non
 vanno mai toccati passando da A a B.
 """
 
+from datetime import date, datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.player import Player
+from app.models.stats import PlayerStatsMatch
 from app.models.watchlist import Watchlist
 from app.schemas.player import (
     MarketValuePoint,
@@ -23,6 +26,7 @@ from app.schemas.player import (
     RecentUpdateItem,
     WatchlistSummary,
 )
+from app.scrapers import api_football
 from app.services.cache_service import cache_delete_prefix, cache_get, cache_set
 
 WATCHLIST_CACHE_PREFIX = "watchlist:user:"
@@ -111,15 +115,23 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
 
 
 def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSearchResult]:
+    """Autocomplete: unisce i giocatori gia' nel nostro DB con una ricerca live
+    su API-Football, cosi' lo scout puo' trovare e aggiungere QUALSIASI
+    giocatore reale, non solo quelli gia' importati.
+    """
     stmt = select(Player).where(Player.full_name.ilike(f"%{query}%")).limit(20)
-    players = db.execute(stmt).scalars().all()
+    local_players = db.execute(stmt).scalars().all()
 
     watchlisted_ids = set(
         db.execute(select(Watchlist.player_id).where(Watchlist.user_id == user_id)).scalars().all()
     )
+    known_api_football_ids = set(
+        db.execute(select(Player.api_football_id).where(Player.api_football_id.is_not(None))).scalars().all()
+    )
 
-    return [
+    results = [
         PlayerSearchResult(
+            source="local",
             id=p.id,
             full_name=p.full_name,
             current_team=p.current_team,
@@ -127,8 +139,148 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
             photo_url=p.photo_url,
             in_watchlist=p.id in watchlisted_ids,
         )
-        for p in players
+        for p in local_players
     ]
+
+    if len(query.strip()) >= 3:
+        for entry in api_football.search_players(query):
+            player_info = entry.get("player", {})
+            af_id = str(player_info.get("id"))
+            if af_id in known_api_football_ids:
+                continue  # gia' rappresentato tra i risultati locali
+
+            primary = api_football.pick_primary_statistics(entry.get("statistics", []))
+            team = (primary or {}).get("team", {}).get("name")
+            league = (primary or {}).get("league", {}).get("name")
+
+            results.append(
+                PlayerSearchResult(
+                    source="api_football",
+                    api_football_id=af_id,
+                    full_name=player_info.get("name") or f"{player_info.get('firstname', '')} {player_info.get('lastname', '')}".strip(),
+                    current_team=team,
+                    league=league,
+                    photo_url=player_info.get("photo"),
+                    in_watchlist=False,
+                )
+            )
+
+    return results[:20]
+
+
+def import_player_from_api_football(db: Session, user_id: int, api_football_id: str) -> Player | None:
+    """Crea (se non esiste) un giocatore reale a partire dal suo id API-Football,
+    con statistiche stagionali reali e le ultime 5 partite reali, poi lo
+    aggiunge alla watchlist. Ritorna None se API-Football non e' configurata
+    o il giocatore non viene trovato.
+    """
+    existing = db.execute(
+        select(Player).where(Player.api_football_id == api_football_id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        add_to_watchlist(db, user_id, existing.id, None, None)
+        return existing
+
+    entry = api_football.get_player_by_id(int(api_football_id))
+    if entry is None:
+        return None
+
+    snapshot = api_football.build_player_snapshot(entry)
+
+    dob = None
+    if snapshot["date_of_birth"]:
+        try:
+            dob = date.fromisoformat(snapshot["date_of_birth"])
+        except ValueError:
+            dob = None
+
+    player = Player(
+        full_name=snapshot["full_name"],
+        date_of_birth=dob,
+        nationality=snapshot["nationality"],
+        position=snapshot["position"],
+        current_team=snapshot["current_team"],
+        league=snapshot["league"],
+        photo_url=snapshot["photo_url"],
+        api_football_id=api_football_id,
+        is_xg_covered=snapshot["is_xg_covered"],
+        goals_season=snapshot["goals_season"],
+        assists_season=snapshot["assists_season"],
+        appearances_season=snapshot["appearances_season"],
+        minutes_season=snapshot["minutes_season"],
+        stats_updated_at=datetime.now(timezone.utc),
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    db.add(player)
+    db.flush()
+
+    team_id = snapshot.get("team_id")
+    if team_id:
+        recent_matches = _fetch_recent_match_rows(player, team_id)
+        db.add_all(recent_matches)
+        db.flush()
+        _recompute_last5(player, recent_matches)
+
+    db.commit()
+    db.refresh(player)
+
+    add_to_watchlist(db, user_id, player.id, None, None)
+    return player
+
+
+def _fetch_recent_match_rows(player: Player, team_id: int) -> list[PlayerStatsMatch]:
+    """Chiamata una tantum (costo accettabile solo all'aggiunta in watchlist):
+    recupera le ultime 5 partite della squadra e ne estrae le statistiche del
+    singolo giocatore, se ha giocato.
+    """
+    rows: list[PlayerStatsMatch] = []
+    fixtures = api_football.get_team_recent_fixtures(team_id, last=5)
+
+    for fixture in fixtures:
+        fixture_id = fixture.get("fixture", {}).get("id")
+        match_date = api_football.fixture_match_date(fixture)
+        if fixture_id is None or match_date is None:
+            continue
+
+        stats = api_football.get_fixture_player_stats(fixture_id, int(player.api_football_id))
+        if stats is None:
+            continue
+
+        games = stats.get("statistics", [{}])[0].get("games", {}) if stats.get("statistics") else {}
+        goals = stats.get("statistics", [{}])[0].get("goals", {}) if stats.get("statistics") else {}
+        teams = fixture.get("teams", {})
+        is_home = (teams.get("home", {}) or {}).get("id") == team_id
+
+        rating_raw = games.get("rating")
+        rating = float(rating_raw) if rating_raw else None
+
+        rows.append(
+            PlayerStatsMatch(
+                player_id=player.id,
+                match_date=match_date,
+                competition=fixture.get("league", {}).get("name") or player.league or "N/D",
+                opponent=(teams.get("away") if is_home else teams.get("home") or {}).get("name"),
+                is_home=is_home,
+                minutes_played=games.get("minutes") or 0,
+                goals=goals.get("total") or 0,
+                assists=goals.get("assists") or 0,
+                rating=rating,
+                source="api_football",
+                external_ref=str(fixture_id),
+            )
+        )
+
+    return rows
+
+
+def _recompute_last5(player: Player, matches: list[PlayerStatsMatch]) -> None:
+    last5 = sorted(matches, key=lambda m: m.match_date, reverse=True)[:5]
+    player.goals_last5 = sum(m.goals for m in last5)
+    player.assists_last5 = sum(m.assists for m in last5)
+    rated = [m.rating for m in matches if m.rating is not None]
+    if rated:
+        player.rating_avg = round(sum(rated) / len(rated), 2)
+        player.rating_updated_at = datetime.now(timezone.utc)
 
 
 def add_to_watchlist(db: Session, user_id: int, player_id: int, notes: str | None, tags: list[str] | None) -> Watchlist:

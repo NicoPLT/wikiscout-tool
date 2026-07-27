@@ -24,7 +24,9 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.models.data_source_log import DataSourceLog
+from app.models.market_value import PlayerMarketValueHistory
 from app.models.player import Player
+from app.models.stats import PlayerStatsMatch
 from app.models.watchlist import Watchlist
 from app.scrapers import api_football, sofascore, transfermarkt, understat
 from app.services.cache_service import cache_delete_prefix
@@ -91,19 +93,115 @@ def run_nightly_update() -> None:
 
 
 def _update_recent_stats(db: Session, player: Player, now: datetime) -> None:
-    since = (now - timedelta(hours=48)).date()
-    matches = api_football.fetch_recent_match_stats(player, since)
-    if not matches:
+    """Rinfresca gli aggregati stagionali e aggiunge eventuali nuove partite
+    reali (giocate nelle ultime 48h) per un giocatore con un vero
+    api_football_id. I giocatori del seed di mock hanno id fittizi
+    (es. "mock-af-3") e vengono saltati senza errore.
+    """
+    if not player.api_football_id:
         return
-    # Fase B: qui andra' il parsing della risposta API-Football in righe
-    # PlayerStatsMatch + il ricalcolo degli aggregati denormalizzati su Player.
+    try:
+        api_football_id = int(player.api_football_id)
+    except ValueError:
+        logger.info("player_id=%s ha un api_football_id non reale (seed mock): salto", player.id)
+        return
+
+    entry = api_football.get_player_by_id(api_football_id)
+    if entry is None:
+        return
+
+    snapshot = api_football.build_player_snapshot(entry)
+    player.current_team = snapshot["current_team"] or player.current_team
+    player.league = snapshot["league"] or player.league
+    player.is_xg_covered = snapshot["is_xg_covered"]
+    player.goals_season = snapshot["goals_season"]
+    player.assists_season = snapshot["assists_season"]
+    player.appearances_season = snapshot["appearances_season"]
+    player.minutes_season = snapshot["minutes_season"]
+
+    team_id = snapshot.get("team_id")
+    if team_id:
+        _ingest_new_fixtures(db, player, team_id, api_football_id, now)
+
     player.stats_updated_at = now
+
+
+def _ingest_new_fixtures(db: Session, player: Player, team_id: int, api_football_id: int, now: datetime) -> None:
+    existing_refs = {
+        ref
+        for ref in db.execute(
+            select(PlayerStatsMatch.external_ref).where(PlayerStatsMatch.player_id == player.id)
+        ).scalars()
+        if ref
+    }
+
+    fixtures = api_football.get_team_recent_fixtures(team_id, last=2)
+    new_rows: list[PlayerStatsMatch] = []
+
+    for fixture in fixtures:
+        if not api_football.is_recently_finished(fixture, within_hours=48):
+            continue
+
+        fixture_id = fixture.get("fixture", {}).get("id")
+        if fixture_id is None or str(fixture_id) in existing_refs:
+            continue
+
+        stats = api_football.get_fixture_player_stats(fixture_id, api_football_id)
+        if stats is None:
+            continue
+
+        games = stats.get("statistics", [{}])[0].get("games", {}) if stats.get("statistics") else {}
+        goals = stats.get("statistics", [{}])[0].get("goals", {}) if stats.get("statistics") else {}
+        teams = fixture.get("teams", {})
+        is_home = (teams.get("home", {}) or {}).get("id") == team_id
+        rating_raw = games.get("rating")
+
+        new_rows.append(
+            PlayerStatsMatch(
+                player_id=player.id,
+                match_date=api_football.fixture_match_date(fixture) or now.date(),
+                competition=fixture.get("league", {}).get("name") or player.league or "N/D",
+                opponent=(teams.get("away") if is_home else teams.get("home") or {}).get("name"),
+                is_home=is_home,
+                minutes_played=games.get("minutes") or 0,
+                goals=goals.get("total") or 0,
+                assists=goals.get("assists") or 0,
+                rating=float(rating_raw) if rating_raw else None,
+                source="api_football",
+                external_ref=str(fixture_id),
+            )
+        )
+
+    if not new_rows:
+        return
+
+    db.add_all(new_rows)
+    db.flush()
+
+    all_matches = db.execute(
+        select(PlayerStatsMatch)
+        .where(PlayerStatsMatch.player_id == player.id)
+        .order_by(PlayerStatsMatch.match_date.desc())
+        .limit(5)
+    ).scalars().all()
+
+    player.goals_last5 = sum(m.goals for m in all_matches)
+    player.assists_last5 = sum(m.assists for m in all_matches)
+
+    rated_new = [r.rating for r in new_rows if r.rating is not None]
+    if rated_new and not sofascore.is_configured():
+        # Se non abbiamo ancora una fonte Sofascore reale, usiamo il rating
+        # match-by-match di API-Football (comunque dato reale) come base.
+        player.rating_avg = round(rated_new[-1], 2) if len(rated_new) == 1 else round(
+            sum(rated_new) / len(rated_new), 2
+        )
+        player.rating_updated_at = now
 
 
 def _update_xg_xa(db: Session, player: Player, now: datetime) -> None:
     if not player.is_xg_covered:
         return
-    data = understat.fetch_xg_xa(player)
+    data = understat.fetch_xg_xa(player, season=api_football.current_season())
     if not data:
         return
     player.xg_season = data.get("xG", player.xg_season)
@@ -116,15 +214,27 @@ def _update_market_value(db: Session, player: Player, now: datetime) -> None:
     ):
         return
 
-    new_value = transfermarkt.fetch_market_value(player)
-    if new_value is None:
+    result = transfermarkt.fetch_market_value(player)
+    if result is None:
         return
+    new_value, transfermarkt_id = result
 
     previous = float(player.market_value_eur) if player.market_value_eur is not None else new_value
     player.market_value_change_eur = new_value - previous
     player.market_value_change_pct = ((new_value - previous) / previous * 100) if previous else 0
     player.market_value_eur = new_value
     player.market_value_updated_at = now
+    if transfermarkt_id and not player.transfermarkt_id:
+        player.transfermarkt_id = transfermarkt_id
+
+    db.add(
+        PlayerMarketValueHistory(
+            player_id=player.id,
+            value_eur=new_value,
+            recorded_at=now.date(),
+            source="transfermarkt",
+        )
+    )
 
 
 def _update_rating(db: Session, player: Player, now: datetime) -> None:

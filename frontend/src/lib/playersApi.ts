@@ -32,6 +32,11 @@ export async function addToWatchlist(playerId: number, notes?: string, tags?: st
   return data
 }
 
+export async function importPlayerFromApiFootball(apiFootballId: string): Promise<PlayerRow> {
+  const { data } = await api.post<PlayerRow>('/api/watchlist/import', { api_football_id: apiFootballId })
+  return data
+}
+
 export async function updateWatchlistEntry(
   playerId: number,
   notes?: string,

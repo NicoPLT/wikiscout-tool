@@ -15,16 +15,26 @@ wikiscout-tool/
 
 ## Fase A vs Fase B
 
-Il progetto e' pensato per essere usabile subito, senza chiavi API:
+Il progetto e' pensato per essere usabile subito, senza chiavi API, ma ora
+supporta anche dati reali:
 
-- **Fase A (ora)**: tutta l'app funziona con dati mock, generati dallo script
-  `backend/scripts/seed_mock_data.py` direttamente nel database. 13 giocatori
-  di fantasia, squadre e campionati reali, con storico partite e valore di
-  mercato.
-- **Fase B (quando avrai le chiavi)**: gli scraper in `backend/app/scrapers/`
-  sono gia' scritti e collegati al job notturno, ma restano "spenti" finche'
-  `API_FOOTBALL_KEY` / `APIFY_TOKEN` non sono impostate in `.env` — vedi
-  [dove ottenere le chiavi](#fase-b-chiavi-api-esterne) piu' sotto.
+- **Fase A (seed mock)**: `backend/scripts/seed_mock_data.py` popola il DB con
+  13 giocatori di fantasia (squadre/campionati reali) per validare la UI
+  senza alcuna chiave API. Restano utilizzabili finche' non li rimuovi dalla
+  watchlist.
+- **Fase B (attiva)**: con `API_FOOTBALL_KEY` impostata, l'autocompletamento
+  in header cerca giocatori REALI (nome + squadra) su tutto il database
+  API-Football, non solo tra quelli gia' importati; aggiungerli alla
+  watchlist li importa con statistiche stagionali e ultime 5 partite reali.
+  Con `APIFY_TOKEN` impostata, il job notturno aggiorna anche valore di
+  mercato (Transfermarkt), rating (Sofascore) e xG/xA (Understat) reali —
+  vedi [dove ottenere le chiavi](#fase-b-chiavi-api-esterne-attiva) piu' sotto.
+
+I 13 giocatori del seed mock hanno un `api_football_id` fittizio
+(`mock-af-N`): il job notturno li riconosce e li salta senza errori, ma non
+verranno mai aggiornati con dati reali. Se vuoi una watchlist interamente
+reale, rimuovili dalla dashboard e ricercali/riaggiungili con
+l'autocompletamento.
 
 Il layer che legge/scrive i dati (`backend/app/services/player_service.py`)
 e' lo stesso in entrambe le fasi: cambia solo chi popola le tabelle
@@ -102,29 +112,55 @@ alembic upgrade head
 UTC, configurabile con `NIGHTLY_JOB_HOUR`/`NIGHTLY_JOB_MINUTE`), per ogni
 giocatore in watchlist:
 
-1. Statistiche recenti da API-Football (se ha giocato nelle ultime 48h)
-2. xG/xA da Understat, solo per i campionati coperti (Top 5 europei)
-3. Valore di mercato da Transfermarkt (refresh settimanale, non giornaliero)
-4. Rating da Sofascore
+1. Statistiche recenti da API-Football (se la squadra ha giocato nelle
+   ultime 48h, aggiorna goal/assist/minuti/rating partita per partita e gli
+   aggregati stagionali)
+2. xG/xA da Understat (via Apify), solo per i campionati coperti (Top 5 europei)
+3. Valore di mercato da Transfermarkt (via Apify, refresh settimanale, non giornaliero)
+4. Rating da Sofascore (via Apify) — se non configurato/disponibile, resta
+   valido il rating reale gia' fornito da API-Football al punto 1
 
 Ogni chiamata alle API esterne e' loggata e conteggiata (`app/scrapers/rate_limit.py`)
 per non sforare i limiti giornalieri gratuiti; se manca la chiave o si e'
 vicini al limite, lo step viene saltato con un warning nei log e in
 `data_sources_log`, senza rompere il job.
 
-## Fase B: chiavi API esterne
+L'autocompletamento nella barra di ricerca (header) unisce i giocatori gia'
+nel DB con una ricerca live su API-Football (`GET /api/players/search`),
+mostrando nome e squadra attuale per ogni risultato; aggiungere un giocatore
+non ancora tracciato lo importa subito con dati reali (stagione corrente +
+ultime 5 partite) tramite `POST /api/watchlist/import`.
+
+## Fase B: chiavi API esterne (attiva)
 
 Finche' i campi restano vuoti in `.env`, l'app funziona comunque con i dati
-del seed mock.
+del seed mock. Con le chiavi impostate, l'app usa dati reali.
 
-- **API-Football**: statistiche partite/goal/assist/minuti.
+- **API-Football**: ricerca giocatori, statistiche partite/goal/assist/minuti/rating.
   Registrati su https://www.api-football.com/ (piano gratuito disponibile,
-  anche via RapidAPI) e incolla la chiave in `API_FOOTBALL_KEY`.
-- **Apify** (usato per gli scraper mirati di Understat/Transfermarkt/Sofascore):
+  anche via RapidAPI) e incolla la chiave in `API_FOOTBALL_KEY`. Il piano
+  gratuito ha un limite di 100 richieste/giorno (`API_FOOTBALL_DAILY_LIMIT`):
+  la ricerca giocatori e' messa in cache 6h per non consumarlo con
+  l'autocompletamento.
+- **Apify** (usato per gli scraper mirati di Transfermarkt/Understat/Sofascore):
   registrati su https://apify.com/, crea un token API personale e incollalo
-  in `APIFY_TOKEN`. Dovrai anche configurare/scegliere gli actor Apify da
-  usare per ciascuna fonte in `backend/app/scrapers/understat.py`,
-  `transfermarkt.py`, `sofascore.py` (variabili `*_ACTOR_ID` in cima al file).
+  in `APIFY_TOKEN`. Gli actor pubblici gia' collegati nel codice:
+  - Transfermarkt (valore di mercato): [`automation-lab/transfermarkt-scraper`](https://apify.com/automation-lab/transfermarkt-scraper)
+    — cerca per nome giocatore, nessun ID Transfermarkt richiesto in anticipo.
+  - Understat (xG/xA): [`parseforge/understat-xg-scraper`](https://apify.com/parseforge/understat-xg-scraper)
+    — una chiamata per campionato/stagione (cache 24h) copre tutti i giocatori di quel campionato.
+  - Sofascore (rating): [`gio21/sofascore-scraper`](https://apify.com/gio21/sofascore-scraper)
+    (risoluzione profilo) + [`azzouzana/sofascore-scraper-pro`](https://apify.com/azzouzana/sofascore-scraper-pro)
+    (scraping pagina profilo). **Nota**: la struttura esatta dell'output di
+    quest'ultimo actor per il rating non e' pubblicamente documentata nei
+    dettagli — `app/scrapers/sofascore.py::_extract_rating_best_effort`
+    prova diversi percorsi plausibili e logga le chiavi ricevute se nessuno
+    corrisponde, cosi' e' rapido aggiustarlo dopo una prima run reale. Nel
+    frattempo il rating resta comunque popolato con dati reali presi da
+    API-Football.
+  Ogni chiamata Apify consuma crediti del tuo account (non c'e' un limite
+  giornaliero fisso come per API-Football): monitora l'uso dalla dashboard
+  Apify.
 
 ## Deploy
 
