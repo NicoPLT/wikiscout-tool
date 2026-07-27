@@ -2,14 +2,18 @@
 
 Orchestrazione (eseguita una volta al giorno, ore configurate in .env), per
 ogni giocatore in watchlist:
-  1. Transfermarkt: valore di mercato, solo se l'ultimo aggiornamento risale
-     a piu' di 7 giorni fa (non toccato rispetto a prima).
-  2. Sofascore: statistiche stagionali (goal/assist/presenze/minuti),
-     ultime partite reali, rating e xG/xA — un'unica sessione browser
-     Playwright riutilizzata per tutti i giocatori del giro.
-  3. (opzionale, spento di default) API-Football legacy, solo se
+  1. Transfermarkt (Apify, invariato): valore di mercato, solo se l'ultimo
+     aggiornamento risale a piu' di 7 giorni fa.
+  2. Transfermarkt (client diretto tmapi.transfermarkt.technology):
+     statistiche stagionali sul campionato principale del club attuale
+     (goal/assist/presenze/minuti) e ultime partite reali con
+     goal/assist/minuti/competizione/avversario.
+  3. Sofascore: SOLO rating e xG/xA (dati che Transfermarkt non ha mai
+     pubblicato) — un'unica sessione browser Playwright riutilizzata per
+     tutti i giocatori del giro.
+  4. (opzionale, spento di default) API-Football legacy, solo se
      ENABLE_API_FOOTBALL=true — vedi app/services/providers/api_football.py.
-  4. Scrive ogni esito in data_sources_log e il timestamp "ultimo
+  5. Scrive ogni esito in data_sources_log e il timestamp "ultimo
      aggiornamento" per riga.
 
 Se una fonte non e' disponibile o un giocatore non ha un link valido
@@ -73,6 +77,7 @@ def run_nightly_update() -> None:
 
         for player in players:
             _update_market_value(db, player, now)
+            _update_from_transfermarkt_performance(db, player, now)
             processed += 1
 
         # Una sola sessione browser Sofascore per tutti i giocatori del giro
@@ -130,6 +135,12 @@ def _update_market_value(db: Session, player: Player, now: datetime) -> None:
             source="transfermarkt",
         )
     )
+
+
+def _update_from_transfermarkt_performance(db: Session, player: Player, now: datetime) -> None:
+    from app.services.player_service import _apply_transfermarkt_performance
+
+    _apply_transfermarkt_performance(db, player)
 
 
 def _update_from_sofascore(db: Session, session: "sofascore.SofascoreSession", player: Player, now: datetime) -> None:

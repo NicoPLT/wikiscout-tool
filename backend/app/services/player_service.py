@@ -29,7 +29,7 @@ from app.schemas.player import (
     RecentUpdateItem,
     WatchlistSummary,
 )
-from app.scrapers import sofascore, transfermarkt
+from app.scrapers import sofascore, transfermarkt, transfermarkt_performance
 from app.services.cache_service import cache_delete_prefix, cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -214,6 +214,8 @@ def import_player_from_transfermarkt(
     db.add(player)
     db.flush()
 
+    _apply_transfermarkt_performance(db, player)
+
     with sofascore.SofascoreSession() as session:
         link_sofascore_profile(db, session, player)
 
@@ -222,6 +224,71 @@ def import_player_from_transfermarkt(
 
     add_to_watchlist(db, user_id, player.id, None, None)
     return player
+
+
+def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
+    """Statistiche stagionali (campionato principale del club attuale) e
+    ultime partite reali, dal client diretto verso l'API interna di
+    Transfermarkt (vedi app/scrapers/transfermarkt_performance.py). Fonte
+    primaria per goal/assist/presenze/minuti: Sofascore resta solo per
+    rating/xG/xA, che Transfermarkt non ha mai pubblicato.
+    """
+    if not player.transfermarkt_id:
+        return False
+
+    club_id = transfermarkt_performance.get_current_club_id(player.transfermarkt_id)
+    if club_id is None:
+        return False
+
+    updated = False
+
+    season_summary = transfermarkt_performance.get_season_summary(player.transfermarkt_id, club_id)
+    if season_summary is not None:
+        player.league = season_summary.competition_name or player.league
+        player.goals_season = season_summary.goals
+        player.assists_season = season_summary.assists
+        player.appearances_season = season_summary.appearances
+        player.minutes_season = season_summary.minutes_played
+        player.stats_updated_at = datetime.now(timezone.utc)
+        updated = True
+
+    recent_matches = transfermarkt_performance.get_recent_matches(player.transfermarkt_id, limit=5)
+    if recent_matches:
+        existing_refs = {
+            ref
+            for ref in db.execute(
+                select(PlayerStatsMatch.external_ref).where(PlayerStatsMatch.player_id == player.id)
+            ).scalars()
+            if ref
+        }
+        new_rows = [
+            PlayerStatsMatch(
+                player_id=player.id,
+                match_date=m.match_date,
+                competition=m.competition_name or m.competition_id,
+                opponent=m.opponent_name or m.opponent_id or "N/D",
+                is_home=m.is_home,
+                minutes_played=m.minutes_played,
+                goals=m.goals,
+                assists=m.assists,
+                rating=None,
+                xg=None,
+                xa=None,
+                source="transfermarkt-leistungsdaten",
+                external_ref=m.external_ref,
+            )
+            for m in recent_matches
+            if m.external_ref not in existing_refs
+        ]
+        if new_rows:
+            db.add_all(new_rows)
+            db.flush()
+
+        player.goals_last5 = sum(m.goals for m in recent_matches[:5])
+        player.assists_last5 = sum(m.assists for m in recent_matches[:5])
+        updated = True
+
+    return updated
 
 
 def link_sofascore_profile(db: Session, session: "sofascore.SofascoreSession", player: Player) -> bool:
@@ -305,60 +372,21 @@ def _best_sofascore_match(candidates: list[dict], current_team: str | None) -> d
 
 
 def _apply_sofascore_link(db: Session, session: "sofascore.SofascoreSession", player: Player, sofascore_id: int) -> bool:
+    """Sofascore resta la fonte SOLO per rating/xG/xA (dati che Transfermarkt
+    non ha mai pubblicato): goal/assist/presenze/minuti/campionato vengono
+    ormai da Transfermarkt (vedi _apply_transfermarkt_performance)."""
     player.sofascore_id = str(sofascore_id)
 
     season_stats = sofascore.get_season_stats(session, sofascore_id)
     if season_stats:
-        player.league = season_stats["league"] or player.league
-        player.current_team = season_stats["current_team"] or player.current_team
-        player.goals_season = season_stats["goals_season"]
-        player.assists_season = season_stats["assists_season"]
-        player.appearances_season = season_stats["appearances_season"]
-        player.minutes_season = season_stats["minutes_season"]
         player.is_xg_covered = season_stats["xg_season"] is not None
+        if season_stats["rating_avg"] is not None:
+            player.rating_avg = season_stats["rating_avg"]
+            player.rating_updated_at = datetime.now(timezone.utc)
         if season_stats["xg_season"] is not None:
             player.xg_season = season_stats["xg_season"]
         if season_stats["xa_season"] is not None:
             player.xa_season = season_stats["xa_season"]
-        player.stats_updated_at = datetime.now(timezone.utc)
-
-    recent_matches = sofascore.get_recent_matches(session, sofascore_id, limit=5)
-    if recent_matches:
-        existing_refs = {
-            ref
-            for ref in db.execute(
-                select(PlayerStatsMatch.external_ref).where(PlayerStatsMatch.player_id == player.id)
-            ).scalars()
-            if ref
-        }
-        new_rows = [
-            PlayerStatsMatch(
-                player_id=player.id,
-                match_date=m["match_date"],
-                competition=m["competition"],
-                opponent=m["opponent"],
-                is_home=m["is_home"],
-                minutes_played=m["minutes_played"],
-                goals=m["goals"],
-                assists=m["assists"],
-                rating=m["rating"],
-                source="sofascore",
-                external_ref=m["external_ref"],
-            )
-            for m in recent_matches
-            if m["external_ref"] not in existing_refs
-        ]
-        if new_rows:
-            db.add_all(new_rows)
-            db.flush()
-
-        rated = [m["rating"] for m in recent_matches if m["rating"] is not None]
-        if rated:
-            player.rating_avg = round(sum(rated) / len(rated), 2)
-            player.rating_updated_at = datetime.now(timezone.utc)
-
-        player.goals_last5 = sum(m["goals"] for m in recent_matches[:5])
-        player.assists_last5 = sum(m["assists"] for m in recent_matches[:5])
 
     return True
 
