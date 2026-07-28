@@ -237,10 +237,15 @@ def test_orchestrator_no_alerts_when_no_criteria_met(db_session):
 # --- manual alerts -----------------------------------------------------------
 
 
+def _user_id_for(db_session, player: Player) -> int:
+    return db_session.query(Watchlist).filter(Watchlist.player_id == player.id).first().user_id
+
+
 def test_create_manual_alert(db_session):
     player = _seed_watchlisted_player(db_session)
+    user_id = _user_id_for(db_session, player)
 
-    alert = svc.create_manual_alert(db_session, player.id, "Visto dal vivo, impressionante nell'uno contro uno")
+    alert = svc.create_manual_alert(db_session, user_id, player.id, "Visto dal vivo, impressionante nell'uno contro uno")
 
     assert alert.id is not None
     assert alert.trigger_type is None
@@ -249,11 +254,33 @@ def test_create_manual_alert(db_session):
     assert "impressionante" in alert.trigger_detail
 
 
+def test_manual_alert_adds_player_to_watchlist_if_not_already_there(db_session):
+    """Un alert manuale su un giocatore non ancora in watchlist deve
+    comunque comparire in list_active_alerts (che filtra via Watchlist):
+    senza aggiungercelo, la nota resterebbe invisibile."""
+    user = User(email="scout2@test.com", hashed_password="x")
+    db_session.add(user)
+    db_session.flush()
+    player = Player(full_name="Non Ancora In Watchlist", current_team="Test FC")
+    db_session.add(player)
+    db_session.flush()
+    db_session.commit()
+
+    assert db_session.query(Watchlist).filter(Watchlist.player_id == player.id).first() is None
+
+    svc.create_manual_alert(db_session, user.id, player.id, "Nota su giocatore nuovo")
+
+    assert db_session.query(Watchlist).filter(Watchlist.player_id == player.id, Watchlist.user_id == user.id).first() is not None
+    results = svc.list_active_alerts(db_session, user.id)
+    assert len(results) == 1
+
+
 def test_manual_alerts_are_never_deduplicated(db_session):
     player = _seed_watchlisted_player(db_session)
+    user_id = _user_id_for(db_session, player)
 
-    svc.create_manual_alert(db_session, player.id, "Nota 1")
-    svc.create_manual_alert(db_session, player.id, "Nota 1")
+    svc.create_manual_alert(db_session, user_id, player.id, "Nota 1")
+    svc.create_manual_alert(db_session, user_id, player.id, "Nota 1")
 
     manual_alerts = (
         db_session.query(PlayerWatchAlert).filter(PlayerWatchAlert.player_id == player.id, PlayerWatchAlert.is_manual.is_(True)).all()
@@ -268,8 +295,8 @@ def test_list_active_alerts_excludes_dismissed(db_session):
     player = _seed_watchlisted_player(db_session)
     user_id = db_session.query(Watchlist).filter(Watchlist.player_id == player.id).first().user_id
 
-    active = svc.create_manual_alert(db_session, player.id, "attivo")
-    dismissed = svc.create_manual_alert(db_session, player.id, "scartato")
+    active = svc.create_manual_alert(db_session, user_id, player.id, "attivo")
+    dismissed = svc.create_manual_alert(db_session, user_id, player.id, "scartato")
     dismissed.is_dismissed = True
     db_session.commit()
 
@@ -282,7 +309,7 @@ def test_list_active_alerts_excludes_dismissed(db_session):
 def test_dismiss_alert_marks_dismissed_and_scopes_by_user(db_session):
     player = _seed_watchlisted_player(db_session)
     user_id = db_session.query(Watchlist).filter(Watchlist.player_id == player.id).first().user_id
-    alert = svc.create_manual_alert(db_session, player.id, "nota")
+    alert = svc.create_manual_alert(db_session, user_id, player.id, "nota")
 
     ok = svc.dismiss_alert(db_session, user_id, alert.id)
     assert ok is True
@@ -298,8 +325,8 @@ def test_count_and_mark_unseen_alerts(db_session):
     player = _seed_watchlisted_player(db_session)
     user_id = db_session.query(Watchlist).filter(Watchlist.player_id == player.id).first().user_id
 
-    svc.create_manual_alert(db_session, player.id, "nota 1")
-    svc.create_manual_alert(db_session, player.id, "nota 2")
+    svc.create_manual_alert(db_session, user_id, player.id, "nota 1")
+    svc.create_manual_alert(db_session, user_id, player.id, "nota 2")
 
     assert svc.count_unseen_alerts(db_session, user_id) == 2
 

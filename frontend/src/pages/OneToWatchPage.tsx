@@ -3,6 +3,7 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { Card } from '../components/ui/Card'
 import { Spinner } from '../components/ui/Spinner'
 import { WatchAlertCard } from '../components/watch-alerts/WatchAlertCard'
+import { ManualAlertForm } from '../components/watch-alerts/ManualAlertForm'
 import { dismissWatchAlert, fetchWatchAlerts } from '../lib/watchAlertsApi'
 import type { WatchAlert, WatchAlertPlayer } from '../types/watchAlert'
 
@@ -86,6 +87,8 @@ export function OneToWatchPage() {
             <p className="text-sm text-danger">{error}</p>
           </Card>
         )}
+
+        <ManualAlertForm onCreated={loadData} />
 
         {isLoading ? (
           <div className="flex items-center gap-2 py-12 text-sm text-text-muted">

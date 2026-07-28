@@ -175,10 +175,21 @@ def detect_alerts_for_player(db: Session, player: Player, today: date | None = N
     return created
 
 
-def create_manual_alert(db: Session, player_id: int, note: str) -> PlayerWatchAlert:
+def create_manual_alert(db: Session, user_id: int, player_id: int, note: str) -> PlayerWatchAlert:
     """Segnalazione aggiunta a mano dallo scout (punto 5): trigger_type=None
     identifica sempre una segnalazione manuale, a prescindere dai criteri
-    automatici."""
+    automatici.
+
+    list_active_alerts mostra solo alert di giocatori nella watchlist di
+    QUESTO utente (join su Watchlist): senza aggiungercelo qui, una nota
+    manuale su un giocatore non ancora in watchlist creerebbe un alert
+    invisibile. add_to_watchlist e' idempotente, quindi non fa nulla se
+    il giocatore c'e' gia'.
+    """
+    from app.services import player_service
+
+    player_service.add_to_watchlist(db, user_id, player_id, None, None)
+
     alert = PlayerWatchAlert(
         player_id=player_id,
         trigger_type=None,

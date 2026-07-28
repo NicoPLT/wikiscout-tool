@@ -9,3 +9,8 @@ export async function fetchWatchAlerts(): Promise<WatchAlert[]> {
 export async function dismissWatchAlert(alertId: number): Promise<void> {
   await api.post(`/api/watch-alerts/${alertId}/dismiss`)
 }
+
+export async function createManualWatchAlert(playerId: number, note: string): Promise<WatchAlert> {
+  const { data } = await api.post<WatchAlert>('/api/watch-alerts', { player_id: playerId, note })
+  return data
+}

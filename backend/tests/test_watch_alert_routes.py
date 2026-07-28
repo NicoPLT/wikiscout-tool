@@ -68,7 +68,7 @@ def test_dismiss_watch_alert_via_api(db_session):
     db_session.add(Watchlist(user_id=user.id, player_id=player.id))
     db_session.commit()
 
-    alert = svc.create_manual_alert(db_session, player.id, "nota")
+    alert = svc.create_manual_alert(db_session, user.id, player.id, "nota")
 
     client = _client(db_session)
     resp = client.post(f"/api/watch-alerts/{alert.id}/dismiss")
@@ -87,6 +87,40 @@ def test_dismiss_unknown_alert_returns_404(db_session):
 
     client = _client(db_session)
     resp = client.post("/api/watch-alerts/999999/dismiss")
+    assert resp.status_code == 404
+
+    app.dependency_overrides.clear()
+
+
+def test_create_manual_watch_alert_via_api_adds_to_watchlist(db_session):
+    user = User(email="scout@test.com", hashed_password="x")
+    db_session.add(user)
+    db_session.flush()
+    player = Player(full_name="Nuovo Talento", current_team="Test FC")
+    db_session.add(player)
+    db_session.commit()
+
+    client = _client(db_session)
+    resp = client.post("/api/watch-alerts", json={"player_id": player.id, "note": "Visto dal vivo"})
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["trigger_type"] is None
+    assert data["is_manual"] is True
+    assert data["trigger_detail"] == "Visto dal vivo"
+    assert data["player"]["full_name"] == "Nuovo Talento"
+
+    assert db_session.query(Watchlist).filter(Watchlist.player_id == player.id, Watchlist.user_id == user.id).first() is not None
+
+    app.dependency_overrides.clear()
+
+
+def test_create_manual_watch_alert_unknown_player_returns_404(db_session):
+    user = User(email="scout@test.com", hashed_password="x")
+    db_session.add(user)
+    db_session.commit()
+
+    client = _client(db_session)
+    resp = client.post("/api/watch-alerts", json={"player_id": 999999, "note": "nota"})
     assert resp.status_code == 404
 
     app.dependency_overrides.clear()
