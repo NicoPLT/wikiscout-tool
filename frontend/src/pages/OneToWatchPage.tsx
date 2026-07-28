@@ -4,7 +4,7 @@ import { Card } from '../components/ui/Card'
 import { Spinner } from '../components/ui/Spinner'
 import { WatchAlertCard } from '../components/watch-alerts/WatchAlertCard'
 import { ManualAlertForm } from '../components/watch-alerts/ManualAlertForm'
-import { dismissWatchAlert, fetchWatchAlerts } from '../lib/watchAlertsApi'
+import { dismissWatchAlert, fetchWatchAlerts, markWatchAlertsSeen } from '../lib/watchAlertsApi'
 import type { WatchAlert, WatchAlertPlayer } from '../types/watchAlert'
 
 interface PlayerAlertGroup {
@@ -49,6 +49,14 @@ export function OneToWatchPage() {
       const data = await fetchWatchAlerts()
       setAlerts(data)
       setError(null)
+      // Aprire la sezione conta come "visto": azzera il badge sidebar
+      // senza scartare gli alert (restano visibili finche' lo scout non
+      // li scarta esplicitamente). L'evento fa aggiornare subito il badge
+      // sulla sidebar di QUESTA stessa pagina, non solo alla prossima
+      // navigazione.
+      markWatchAlertsSeen()
+        .then(() => window.dispatchEvent(new Event('watch-alerts-seen')))
+        .catch(() => {})
     } catch {
       setError('Impossibile caricare le segnalazioni. Verifica che il backend sia raggiungibile.')
     } finally {

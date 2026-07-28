@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.watch_alert import ManualWatchAlertCreate, WatchAlertOut
+from app.schemas.watch_alert import ManualWatchAlertCreate, WatchAlertOut, WatchAlertUnseenCount
 from app.services import watch_alert_service
 
 router = APIRouter(prefix="/api", tags=["watch-alerts"])
@@ -49,3 +49,22 @@ def dismiss_watch_alert(
     ok = watch_alert_service.dismiss_alert(db, current_user.id, alert_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Alert non trovato")
+
+
+@router.get("/watch-alerts/unseen-count", response_model=WatchAlertUnseenCount)
+def get_unseen_watch_alert_count(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WatchAlertUnseenCount:
+    """Per il badge numerico sull'icona sidebar: distingue 'non ancora
+    visto' (is_seen=False) da 'visto ma non scartato', cosi' aprire la
+    sezione senza scartare nulla comunque azzera il badge."""
+    return WatchAlertUnseenCount(count=watch_alert_service.count_unseen_alerts(db, current_user.id))
+
+
+@router.post("/watch-alerts/mark-seen", status_code=status.HTTP_204_NO_CONTENT)
+def mark_watch_alerts_seen(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    watch_alert_service.mark_all_seen(db, current_user.id)

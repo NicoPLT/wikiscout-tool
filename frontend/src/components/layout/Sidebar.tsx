@@ -36,9 +36,10 @@ function LogoutIcon() {
 
 interface SidebarProps {
   onLogout: () => void
+  unseenWatchAlertCount?: number
 }
 
-export function Sidebar({ onLogout }: SidebarProps) {
+export function Sidebar({ onLogout, unseenWatchAlertCount = 0 }: SidebarProps) {
   return (
     <aside className="flex h-full w-18 flex-col items-center justify-between border-r border-border-subtle bg-bg-surface py-5">
       <div className="flex flex-col items-center gap-8">
@@ -61,7 +62,7 @@ export function Sidebar({ onLogout }: SidebarProps) {
           <NavLink
             to="/one-to-watch"
             className={({ isActive }) =>
-              `flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+              `relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
                 isActive
                   ? 'bg-accent-primary text-text-onaccent'
                   : 'text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary'
@@ -70,6 +71,11 @@ export function Sidebar({ onLogout }: SidebarProps) {
             title="One to Watch"
           >
             <FlameIcon />
+            {unseenWatchAlertCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-text-primary">
+                {unseenWatchAlertCount > 9 ? '9+' : unseenWatchAlertCount}
+              </span>
+            )}
           </NavLink>
         </nav>
       </div>

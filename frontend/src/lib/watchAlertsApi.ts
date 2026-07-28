@@ -14,3 +14,12 @@ export async function createManualWatchAlert(playerId: number, note: string): Pr
   const { data } = await api.post<WatchAlert>('/api/watch-alerts', { player_id: playerId, note })
   return data
 }
+
+export async function fetchUnseenWatchAlertCount(): Promise<number> {
+  const { data } = await api.get<{ count: number }>('/api/watch-alerts/unseen-count')
+  return data.count
+}
+
+export async function markWatchAlertsSeen(): Promise<void> {
+  await api.post('/api/watch-alerts/mark-seen')
+}

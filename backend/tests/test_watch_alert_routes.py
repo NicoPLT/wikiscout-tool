@@ -124,3 +124,30 @@ def test_create_manual_watch_alert_unknown_player_returns_404(db_session):
     assert resp.status_code == 404
 
     app.dependency_overrides.clear()
+
+
+def test_unseen_count_and_mark_seen_via_api(db_session):
+    user = User(email="scout@test.com", hashed_password="x")
+    db_session.add(user)
+    db_session.flush()
+    player = Player(full_name="Test Player", current_team="Test FC")
+    db_session.add(player)
+    db_session.flush()
+    db_session.add(Watchlist(user_id=user.id, player_id=player.id))
+    db_session.commit()
+
+    svc.create_manual_alert(db_session, user.id, player.id, "nota 1")
+    svc.create_manual_alert(db_session, user.id, player.id, "nota 2")
+
+    client = _client(db_session)
+    resp = client.get("/api/watch-alerts/unseen-count")
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    resp = client.post("/api/watch-alerts/mark-seen")
+    assert resp.status_code == 204
+
+    resp = client.get("/api/watch-alerts/unseen-count")
+    assert resp.json()["count"] == 0
+
+    app.dependency_overrides.clear()
