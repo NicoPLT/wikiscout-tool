@@ -13,7 +13,11 @@ ogni giocatore in watchlist:
      tutti i giocatori del giro.
   4. (opzionale, spento di default) API-Football legacy, solo se
      ENABLE_API_FOOTBALL=true — vedi app/services/providers/api_football.py.
-  5. Scrive ogni esito in data_sources_log e il timestamp "ultimo
+  5. "One to Watch" (app/services/watch_alert_service.py): valuta i criteri
+     di rilevamento automatico SOLO dopo che partite/valore di
+     mercato/trasferimenti sono gia' stati aggiornati per tutti i
+     giocatori del giro (altrimenti valuterebbe dati vecchi di un giorno).
+  6. Scrive ogni esito in data_sources_log e il timestamp "ultimo
      aggiornamento" per riga.
 
 Se una fonte non e' disponibile o un giocatore non ha un link valido
@@ -91,6 +95,13 @@ def run_nightly_update() -> None:
 
         if settings.ENABLE_API_FOOTBALL:
             _run_legacy_api_football_step(db, players, now)
+
+        # "One to Watch": deve girare per ULTIMO, quando tutti i dati del
+        # giro (partite, valore di mercato) sono gia' aggiornati per ogni
+        # giocatore — altrimenti valuterebbe ancora i dati della notte
+        # precedente per i giocatori processati piu' avanti nel ciclo.
+        for player in players:
+            _detect_watch_alerts(db, player, now)
 
         for player in players:
             player.last_synced_at = now
@@ -178,6 +189,12 @@ def _update_from_sofascore(db: Session, session: "sofascore.SofascoreSession", p
         return
 
     _apply_sofascore_link(db, session, player, int(player.sofascore_id))
+
+
+def _detect_watch_alerts(db: Session, player: Player, now: datetime) -> None:
+    from app.services import watch_alert_service
+
+    watch_alert_service.detect_alerts_for_player(db, player, now.date())
 
 
 def _run_legacy_api_football_step(db: Session, players: list[Player], now: datetime) -> None:

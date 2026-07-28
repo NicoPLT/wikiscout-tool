@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # anche se qui non c'e' un browser di mezzo.
     TRANSFERMARKT_PERFORMANCE_REQUEST_DELAY_SECONDS: float = 1.0
 
+    # "One to Watch": soglie di rilevamento automatico (vedi
+    # app/services/watch_alert_service.py). Configurabili via env senza
+    # toccare il codice, per poterle affinare nel tempo.
+    WATCH_ALERT_RATING_THRESHOLD: float = 7.5
+    WATCH_ALERT_STREAK_MATCHES: int = 2
+    WATCH_ALERT_RECENT_TRANSFER_DAYS: int = 30
+    WATCH_ALERT_MARKET_VALUE_SPIKE_PCT: float = 20.0
+    WATCH_ALERT_MARKET_VALUE_WINDOW_DAYS: int = 60
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
