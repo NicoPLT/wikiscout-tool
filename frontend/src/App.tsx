@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { PlayerDetailPage } from './pages/PlayerDetailPage'
+import { OneToWatchPage } from './pages/OneToWatchPage'
 
 function App() {
   return (
@@ -24,6 +25,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <PlayerDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/one-to-watch"
+            element={
+              <ProtectedRoute>
+                <OneToWatchPage />
               </ProtectedRoute>
             }
           />

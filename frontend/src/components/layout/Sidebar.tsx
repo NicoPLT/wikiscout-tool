@@ -12,6 +12,18 @@ function GridIcon() {
   )
 }
 
+function FlameIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path
+        d="M12 2c1 3-2 4-2 7a4 4 0 108 0c0-1.5-1-2.5-1-2.5.5 2-1 3-1 3 .5-4-2-5-2-7.5-1 1.5-3 2.5-3 5.5a4 4 0 108 0"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function LogoutIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -45,6 +57,19 @@ export function Sidebar({ onLogout }: SidebarProps) {
             title="Dashboard"
           >
             <GridIcon />
+          </NavLink>
+          <NavLink
+            to="/one-to-watch"
+            className={({ isActive }) =>
+              `flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                isActive
+                  ? 'bg-accent-primary text-text-onaccent'
+                  : 'text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary'
+              }`
+            }
+            title="One to Watch"
+          >
+            <FlameIcon />
           </NavLink>
         </nav>
       </div>

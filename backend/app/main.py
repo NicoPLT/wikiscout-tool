@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes_auth import router as auth_router
 from app.api.routes_players import router as players_router
 from app.api.routes_tags import router as tags_router
+from app.api.routes_watch_alerts import router as watch_alerts_router
 from app.core.config import get_settings
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.db import base  # noqa: F401  # registra tutti i modelli per SQLAlchemy (relationship string lookups)
@@ -35,6 +36,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(players_router)
 app.include_router(tags_router)
+app.include_router(watch_alerts_router)
 
 
 @app.get("/api/health")
