@@ -13,7 +13,7 @@ import re
 import unicodedata
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.market_value import PlayerMarketValueHistory
@@ -181,6 +181,20 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
     known_transfermarkt_ids = set(
         db.execute(select(Player.transfermarkt_id).where(Player.transfermarkt_id.is_not(None))).scalars().all()
     )
+    # Nome dei giocatori gia' in watchlist di QUESTO utente: serve per
+    # escludere i candidati Transfermarkt che rappresentano lo stesso
+    # giocatore reale ma non hanno ancora un transfermarkt_id salvato in
+    # locale (es. giocatori del seed mock, o importati prima che questo
+    # campo esistesse) — senza questo controllo known_transfermarkt_ids da
+    # solo non basta a evitare di re-importarlo come riga duplicata.
+    watchlisted_names = {
+        name.strip().lower()
+        for name in db.execute(
+            select(Player.full_name)
+            .join(Watchlist, Watchlist.player_id == Player.id)
+            .where(Watchlist.user_id == user_id)
+        ).scalars()
+    }
 
     results = [
         PlayerSearchResult(
@@ -200,6 +214,8 @@ def search_all_players(db: Session, user_id: int, query: str) -> list[PlayerSear
             tm_id = candidate["transfermarkt_id"]
             if tm_id in known_transfermarkt_ids:
                 continue  # gia' rappresentato tra i risultati locali
+            if candidate["full_name"].strip().lower() in watchlisted_names:
+                continue  # stesso giocatore gia' in watchlist, solo senza transfermarkt_id risolto
 
             results.append(
                 PlayerSearchResult(
@@ -246,6 +262,19 @@ def import_player_from_transfermarkt(
     if existing is not None:
         add_to_watchlist(db, user_id, existing.id, None, None)
         return existing
+
+    # Difesa in profondita': se un candidato Transfermarkt duplicato di un
+    # giocatore gia' in watchlist di questo utente (stesso nome, ma senza
+    # transfermarkt_id risolto in locale) arriva comunque fin qui nonostante
+    # il filtro in search_all_players, evita di creare una seconda riga
+    # Player per la stessa persona reale.
+    duplicate_in_watchlist = db.execute(
+        select(Player)
+        .join(Watchlist, Watchlist.player_id == Player.id)
+        .where(Watchlist.user_id == user_id, func.lower(Player.full_name) == full_name.strip().lower())
+    ).scalars().first()
+    if duplicate_in_watchlist is not None:
+        return duplicate_in_watchlist
 
     player = Player(
         full_name=full_name,
