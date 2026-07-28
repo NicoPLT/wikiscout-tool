@@ -18,6 +18,7 @@ import {
 import { assignPlayerTag, fetchTags } from '../lib/tagsApi'
 import type { PlayerDetail, PlayerSeasonOption, PlayerTransfer, Tag } from '../types/player'
 import { formatCurrency, formatDate, formatPct, formatRelativeUpdate } from '../lib/format'
+import { linkifyText } from '../lib/linkify'
 
 function BackIcon() {
   return (
@@ -63,6 +64,7 @@ export function PlayerDetailPage() {
   const navigate = useNavigate()
   const [player, setPlayer] = useState<PlayerDetail | null>(null)
   const [notes, setNotes] = useState('')
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [sofascoreInput, setSofascoreInput] = useState('')
@@ -103,6 +105,7 @@ export function PlayerDetailPage() {
       const updated = await updateWatchlistEntry(player.id, notes)
       setPlayer(updated)
       setSaved(true)
+      setIsEditingNotes(false)
       setTimeout(() => setSaved(false), 2000)
     } finally {
       setIsSaving(false)
@@ -304,19 +307,46 @@ export function PlayerDetailPage() {
           </Card>
 
           <Card title="Note personali">
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Osservazioni, punti di forza, aree di miglioramento..."
-              rows={5}
-              className="w-full resize-none rounded-md border border-border-subtle bg-bg-surface-hover p-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
-            />
-            <div className="mt-3 flex items-center gap-3">
-              <Button onClick={handleSaveNotes} disabled={isSaving}>
-                {isSaving ? 'Salvataggio...' : 'Salva'}
-              </Button>
-              {saved && <span className="text-xs text-accent-primary">Salvato</span>}
-            </div>
+            {isEditingNotes ? (
+              <>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Osservazioni, punti di forza, aree di miglioramento... (i link vengono resi cliccabili)"
+                  rows={5}
+                  autoFocus
+                  className="w-full resize-none rounded-md border border-border-subtle bg-bg-surface-hover p-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
+                />
+                <div className="mt-3 flex items-center gap-3">
+                  <Button onClick={handleSaveNotes} disabled={isSaving}>
+                    {isSaving ? 'Salvataggio...' : 'Salva'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setNotes(player.watchlist_notes ?? '')
+                      setIsEditingNotes(false)
+                    }}
+                  >
+                    Annulla
+                  </Button>
+                  {saved && <span className="text-xs text-accent-primary">Salvato</span>}
+                </div>
+              </>
+            ) : (
+              <>
+                {notes ? (
+                  <p className="whitespace-pre-wrap break-words text-sm text-text-primary">{linkifyText(notes)}</p>
+                ) : (
+                  <p className="text-sm text-text-muted">Nessuna nota.</p>
+                )}
+                <div className="mt-3">
+                  <Button variant="secondary" onClick={() => setIsEditingNotes(true)} className="!px-3 !py-1.5 text-xs">
+                    {notes ? 'Modifica' : 'Aggiungi nota'}
+                  </Button>
+                </div>
+              </>
+            )}
           </Card>
         </div>
 
