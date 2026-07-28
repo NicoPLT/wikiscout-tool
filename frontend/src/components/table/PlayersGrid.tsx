@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import {
   AllCommunityModule,
@@ -23,6 +23,7 @@ import { assignPlayerTag } from '../../lib/tagsApi'
 import { hexToRgba } from '../../lib/ratingScale'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { Button } from '../ui/Button'
+import { TagSelect } from '../tags/TagSelect'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -37,28 +38,16 @@ function TagCellRenderer(props: { data?: PlayerRow; tags: Tag[]; onTagAssigned: 
   if (!props.data) return null
   const player = props.data
 
-  async function handleChange(e: ChangeEvent<HTMLSelectElement>) {
-    e.stopPropagation()
-    const value = e.target.value
-    await assignPlayerTag(player.id, value === '' ? null : Number(value))
-    props.onTagAssigned()
-  }
-
   return (
-    <select
-      value={player.tag?.id ?? ''}
-      onChange={handleChange}
-      onClick={(e) => e.stopPropagation()}
-      className="h-7 rounded-sm border-0 bg-bg-surface-hover px-2 text-xs font-medium focus:outline-none"
-      style={player.tag ? { backgroundColor: hexToRgba(player.tag.color, 0.2), color: player.tag.color } : undefined}
-    >
-      <option value="">Nessun tag</option>
-      {props.tags.map((tag) => (
-        <option key={tag.id} value={tag.id}>
-          {tag.name}
-        </option>
-      ))}
-    </select>
+    <TagSelect
+      value={player.tag}
+      tags={props.tags}
+      onAssign={async (tagId) => {
+        await assignPlayerTag(player.id, tagId)
+        props.onTagAssigned()
+      }}
+      onTagCreated={() => props.onTagAssigned()}
+    />
   )
 }
 

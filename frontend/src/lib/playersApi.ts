@@ -29,13 +29,13 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
   return data
 }
 
-export async function addToWatchlist(playerId: number, notes?: string, tags?: string[]): Promise<PlayerRow> {
-  const { data } = await api.post<PlayerRow>('/api/watchlist', { player_id: playerId, notes, tags })
+export async function addToWatchlist(playerId: number, notes?: string, tags?: string[]): Promise<PlayerDetail> {
+  const { data } = await api.post<PlayerDetail>('/api/watchlist', { player_id: playerId, notes, tags })
   return data
 }
 
-export async function importPlayerFromTransfermarkt(candidate: PlayerSearchResult): Promise<PlayerRow> {
-  const { data } = await api.post<PlayerRow>('/api/watchlist/import', {
+export async function importPlayerFromTransfermarkt(candidate: PlayerSearchResult): Promise<PlayerDetail> {
+  const { data } = await api.post<PlayerDetail>('/api/watchlist/import', {
     transfermarkt_id: candidate.transfermarkt_id,
     full_name: candidate.full_name,
     current_team: candidate.current_team,
@@ -57,8 +57,8 @@ export async function fetchPlayerTransfers(playerId: number): Promise<PlayerTran
   return data
 }
 
-export async function linkSofascoreProfile(playerId: number, sofascoreUrlOrId: string): Promise<PlayerRow> {
-  const { data } = await api.post<PlayerRow>(`/api/players/${playerId}/sofascore-link`, {
+export async function linkSofascoreProfile(playerId: number, sofascoreUrlOrId: string): Promise<PlayerDetail> {
+  const { data } = await api.post<PlayerDetail>(`/api/players/${playerId}/sofascore-link`, {
     sofascore_url_or_id: sofascoreUrlOrId,
   })
   return data
@@ -68,8 +68,8 @@ export async function updateWatchlistEntry(
   playerId: number,
   notes?: string,
   tags?: string[],
-): Promise<PlayerRow> {
-  const { data } = await api.patch<PlayerRow>(`/api/watchlist/${playerId}`, { notes, tags })
+): Promise<PlayerDetail> {
+  const { data } = await api.patch<PlayerDetail>(`/api/watchlist/${playerId}`, { notes, tags })
   return data
 }
 

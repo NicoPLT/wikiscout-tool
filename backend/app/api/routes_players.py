@@ -37,12 +37,12 @@ def get_watchlist_summary(
     return player_service.get_watchlist_summary(db, current_user.id)
 
 
-@router.post("/watchlist", response_model=PlayerRow, status_code=status.HTTP_201_CREATED)
+@router.post("/watchlist", response_model=PlayerDetail, status_code=status.HTTP_201_CREATED)
 def add_to_watchlist(
     payload: WatchlistAddRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> PlayerRow:
+) -> PlayerDetail:
     player_service.add_to_watchlist(db, current_user.id, payload.player_id, payload.notes, payload.tags)
     row = player_service.get_player_detail(db, current_user.id, payload.player_id)
     if row is None:
@@ -50,12 +50,12 @@ def add_to_watchlist(
     return row
 
 
-@router.post("/watchlist/import", response_model=PlayerRow, status_code=status.HTTP_201_CREATED)
+@router.post("/watchlist/import", response_model=PlayerDetail, status_code=status.HTTP_201_CREATED)
 def import_from_transfermarkt(
     payload: WatchlistImportRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> PlayerRow:
+) -> PlayerDetail:
     """Importa un giocatore reale trovato via Transfermarkt (non ancora nel
     nostro DB) e lo aggiunge subito alla watchlist, provando anche a
     collegare Sofascore per rating/xG/xA/statistiche stagionali.
@@ -81,13 +81,13 @@ def import_from_transfermarkt(
     return row
 
 
-@router.post("/players/{player_id}/sofascore-link", response_model=PlayerRow)
+@router.post("/players/{player_id}/sofascore-link", response_model=PlayerDetail)
 def link_sofascore(
     player_id: int,
     payload: SofascoreLinkRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> PlayerRow:
+) -> PlayerDetail:
     """Collegamento manuale al profilo Sofascore corretto, per i casi in cui
     il matching automatico per nome+squadra fallisce o e' ambiguo (omonimie).
     """
@@ -104,13 +104,13 @@ def link_sofascore(
     return row
 
 
-@router.patch("/watchlist/{player_id}", response_model=PlayerRow)
+@router.patch("/watchlist/{player_id}", response_model=PlayerDetail)
 def update_watchlist(
     player_id: int,
     payload: WatchlistUpdateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> PlayerRow:
+) -> PlayerDetail:
     entry = player_service.update_watchlist_entry(db, current_user.id, player_id, payload.notes, payload.tags)
     if entry is None:
         raise HTTPException(status_code=404, detail="Il giocatore non e' in watchlist")

@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
 import { RatingBadge } from '../components/ui/RatingBadge'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
+import { TagSelect } from '../components/tags/TagSelect'
 import {
   fetchPlayerDetail,
   fetchPlayerSeasons,
@@ -14,7 +15,8 @@ import {
   linkSofascoreProfile,
   updateWatchlistEntry,
 } from '../lib/playersApi'
-import type { PlayerDetail, PlayerSeasonOption, PlayerTransfer } from '../types/player'
+import { assignPlayerTag, fetchTags } from '../lib/tagsApi'
+import type { PlayerDetail, PlayerSeasonOption, PlayerTransfer, Tag } from '../types/player'
 import { formatCurrency, formatDate, formatPct, formatRelativeUpdate } from '../lib/format'
 
 function BackIcon() {
@@ -61,7 +63,6 @@ export function PlayerDetailPage() {
   const navigate = useNavigate()
   const [player, setPlayer] = useState<PlayerDetail | null>(null)
   const [notes, setNotes] = useState('')
-  const [tagsInput, setTagsInput] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [sofascoreInput, setSofascoreInput] = useState('')
@@ -72,6 +73,7 @@ export function PlayerDetailPage() {
   const [isLoadingSeasons, setIsLoadingSeasons] = useState(true)
   const [transfers, setTransfers] = useState<PlayerTransfer[]>([])
   const [isLoadingTransfers, setIsLoadingTransfers] = useState(true)
+  const [tags, setTags] = useState<Tag[]>([])
 
   useEffect(() => {
     if (!playerId) return
@@ -79,8 +81,8 @@ export function PlayerDetailPage() {
     fetchPlayerDetail(Number(playerId)).then((data) => {
       setPlayer(data)
       setNotes(data.watchlist_notes ?? '')
-      setTagsInput((data.watchlist_tags ?? []).join(', '))
     })
+    fetchTags().then(setTags)
     setIsLoadingSeasons(true)
     fetchPlayerSeasons(Number(playerId))
       .then((options) => {
@@ -98,17 +100,20 @@ export function PlayerDetailPage() {
     if (!player) return
     setIsSaving(true)
     try {
-      const tags = tagsInput
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean)
-      const updated = await updateWatchlistEntry(player.id, notes, tags)
-      setPlayer(updated as PlayerDetail)
+      const updated = await updateWatchlistEntry(player.id, notes)
+      setPlayer(updated)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally {
       setIsSaving(false)
     }
+  }
+
+  async function handleAssignTag(tagId: number | null) {
+    if (!player) return
+    await assignPlayerTag(player.id, tagId)
+    const assigned = tagId === null ? null : tags.find((t) => t.id === tagId) ?? null
+    setPlayer({ ...player, tag: assigned })
   }
 
   async function handleLinkSofascore() {
@@ -117,7 +122,7 @@ export function PlayerDetailPage() {
     setSofascoreLinkError(null)
     try {
       const updated = await linkSofascoreProfile(player.id, sofascoreInput.trim())
-      setPlayer(updated as PlayerDetail)
+      setPlayer(updated)
       setSofascoreInput('')
     } catch {
       setSofascoreLinkError('URL/id non valido, o profilo senza statistiche disponibili. Controlla il link e riprova.')
@@ -174,6 +179,15 @@ export function PlayerDetailPage() {
                 {player.nationality ?? 'N/D'} · nato il {formatDate(player.date_of_birth)}
                 {player.age !== null && ` (${player.age} anni)`}
               </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="label-caption">Tag</span>
+                <TagSelect
+                  value={player.tag}
+                  tags={tags}
+                  onAssign={handleAssignTag}
+                  onTagCreated={(tag) => setTags((prev) => [...prev, tag])}
+                />
+              </div>
               {(player.transfermarkt_id || player.sofascore_id || player.fotmob_id) && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {player.transfermarkt_id && (
@@ -296,12 +310,6 @@ export function PlayerDetailPage() {
               placeholder="Osservazioni, punti di forza, aree di miglioramento..."
               rows={5}
               className="w-full resize-none rounded-md border border-border-subtle bg-bg-surface-hover p-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
-            />
-            <input
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              placeholder="Tag separati da virgola (es. talento, da monitorare)"
-              className="mt-3 w-full rounded-md border border-border-subtle bg-bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
             />
             <div className="mt-3 flex items-center gap-3">
               <Button onClick={handleSaveNotes} disabled={isSaving}>
