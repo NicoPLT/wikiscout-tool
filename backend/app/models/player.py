@@ -47,6 +47,11 @@ class Player(Base):
     assists_season: Mapped[int] = mapped_column(Integer, default=0)
     appearances_season: Mapped[int] = mapped_column(Integer, default=0)
     minutes_season: Mapped[int] = mapped_column(Integer, default=0)
+    # Solo per la scheda giocatore singola (non in dashboard): titolarita' e
+    # cartellini della stagione, stessa fonte/aggiornamento di goals_season.
+    starts_season: Mapped[int] = mapped_column(Integer, default=0)
+    yellow_cards_season: Mapped[int] = mapped_column(Integer, default=0)
+    red_cards_season: Mapped[int] = mapped_column(Integer, default=0)
     # Etichetta della stagione a cui si riferiscono goals_season/assists_season/
     # appearances_season/minutes_season (es. "25/26"). Non e' sempre la
     # stagione "in corso": se il giocatore non ha ancora giocato nella

@@ -149,6 +149,9 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
     row = _player_to_row(player, watchlist_entry)
     return PlayerDetail(
         **row.model_dump(),
+        starts_season=player.starts_season,
+        yellow_cards_season=player.yellow_cards_season,
+        red_cards_season=player.red_cards_season,
         date_of_birth=player.date_of_birth,
         nationality=player.nationality,
         transfermarkt_id=player.transfermarkt_id,
@@ -297,6 +300,9 @@ def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
         player.assists_season = season_summary.assists
         player.appearances_season = season_summary.appearances
         player.minutes_season = season_summary.minutes_played
+        player.starts_season = season_summary.starts
+        player.yellow_cards_season = season_summary.yellow_cards
+        player.red_cards_season = season_summary.red_cards
         player.stats_updated_at = datetime.now(timezone.utc)
         updated = True
 

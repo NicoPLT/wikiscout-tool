@@ -74,6 +74,12 @@ class MarketValuePoint(BaseModel):
 
 
 class PlayerDetail(PlayerRow):
+    # Solo per la scheda giocatore singola (non in dashboard): titolarita' e
+    # cartellini della stagione corrente/piu' recente con dati reali.
+    starts_season: int = 0
+    yellow_cards_season: int = 0
+    red_cards_season: int = 0
+
     date_of_birth: date | None
     nationality: str | None
     transfermarkt_id: str | None
@@ -189,3 +195,6 @@ class PlayerSeasonOption(BaseModel):
     goals: int
     assists: int
     minutes_played: int
+    starts: int = 0
+    yellow_cards: int = 0
+    red_cards: int = 0

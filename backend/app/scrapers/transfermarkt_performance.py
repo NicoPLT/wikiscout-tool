@@ -111,6 +111,9 @@ class SeasonSummary(BaseModel):
     goals: int
     assists: int
     minutes_played: int
+    starts: int = 0
+    yellow_cards: int = 0
+    red_cards: int = 0
 
 
 def is_configured() -> bool:
@@ -251,6 +254,22 @@ def get_recent_matches(player_id: str, limit: int = 5) -> list[MatchPerformance]
     return matches
 
 
+def _was_starter(game: dict) -> bool:
+    return bool(game["statistics"]["playingTimeStatistics"].get("isStarting"))
+
+
+def _yellow_cards(game: dict) -> int:
+    return game["statistics"]["cardStatistics"].get("yellowCardGross") or 0
+
+
+def _was_sent_off(game: dict) -> bool:
+    """Espulsione: cartellino rosso diretto o doppia ammonizione (secondo
+    giallo -> rosso), le uniche due chiavi che tmapi usa per rappresentare
+    un'espulsione nella singola partita."""
+    cards = game["statistics"]["cardStatistics"]
+    return bool(cards.get("redCard")) or bool(cards.get("yellowRedCard"))
+
+
 def _pick_competition_for_season(season_games: list[dict], primary_competition_id: str | None) -> str:
     if primary_competition_id and any(
         g["gameInformation"]["competitionId"] == primary_competition_id for g in season_games
@@ -321,6 +340,9 @@ def list_season_options(player_id: str, current_club_id: str, max_seasons: int =
             minutes_played=sum(
                 g["statistics"]["playingTimeStatistics"].get("playedMinutes") or 0 for g in comp_games
             ),
+            starts=sum(1 for g in comp_games if _was_starter(g)),
+            yellow_cards=sum(_yellow_cards(g) for g in comp_games),
+            red_cards=sum(1 for g in comp_games if _was_sent_off(g)),
         )
         for season_id, competition_id, comp_games in picked
     ]

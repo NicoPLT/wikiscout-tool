@@ -57,6 +57,10 @@ export interface MarketValuePoint {
 }
 
 export interface PlayerDetail extends PlayerRow {
+  starts_season: number
+  yellow_cards_season: number
+  red_cards_season: number
+
   date_of_birth: string | null
   nationality: string | null
   transfermarkt_id: string | null
@@ -123,6 +127,9 @@ export interface PlayerSeasonOption {
   goals: number
   assists: number
   minutes_played: number
+  starts: number
+  yellow_cards: number
+  red_cards: number
 }
 
 export interface WatchlistSummary {

@@ -8,6 +8,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { RatingBadge } from '../components/ui/RatingBadge'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
 import { TagSelect } from '../components/tags/TagSelect'
+import { SeasonStatsCard } from '../components/player/SeasonStatsCard'
 import {
   fetchPlayerDetail,
   fetchPlayerSeasons,
@@ -155,6 +156,9 @@ export function PlayerDetailPage() {
   const seasonMinutes = displayedSeason ? displayedSeason.minutes_played : player.minutes_season
   const seasonLabel = displayedSeason ? displayedSeason.season_label : player.season_label
   const seasonCompetition = displayedSeason ? displayedSeason.competition_name : player.league
+  const seasonStarts = displayedSeason ? displayedSeason.starts : player.starts_season
+  const seasonYellowCards = displayedSeason ? displayedSeason.yellow_cards : player.yellow_cards_season
+  const seasonRedCards = displayedSeason ? displayedSeason.red_cards : player.red_cards_season
 
   return (
     <AppLayout>
@@ -225,62 +229,31 @@ export function PlayerDetailPage() {
           </div>
         </Card>
 
-        {isLoadingSeasons && (
+        {isLoadingSeasons ? (
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <Spinner size="sm" />
             Caricamento statistiche stagionali...
           </div>
+        ) : (
+          <SeasonStatsCard
+            competitionName={seasonCompetition}
+            seasonLabel={seasonLabel}
+            seasonOptions={seasonOptions}
+            selectedSeasonId={selectedSeasonId}
+            onSeasonChange={setSelectedSeasonId}
+            goals={seasonGoals}
+            assists={seasonAssists}
+            starts={seasonStarts}
+            appearances={seasonAppearances}
+            minutesPlayed={seasonMinutes}
+            rating={player.rating_avg}
+            yellowCards={seasonYellowCards}
+            redCards={seasonRedCards}
+            isXgCovered={player.is_xg_covered}
+            xg={player.xg_season}
+            xa={player.xa_season}
+          />
         )}
-
-        {seasonOptions.length > 0 && (
-          <div className="flex items-center justify-between">
-            <p className="label-caption">
-              Statistiche di club {seasonCompetition ? `· ${seasonCompetition}` : ''}
-            </p>
-            <select
-              value={selectedSeasonId ?? ''}
-              onChange={(e) => setSelectedSeasonId(Number(e.target.value))}
-              className="rounded-sm border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm text-text-primary focus:border-accent-primary focus:outline-none"
-            >
-              {seasonOptions.map((o) => (
-                <option key={o.season_id} value={o.season_id}>
-                  Stagione {o.season_label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <Card>
-            <p className="label-caption">Goal / Assist stagione</p>
-            <p className="mt-2 text-xl text-text-primary">
-              {seasonGoals} / {seasonAssists}
-            </p>
-            {seasonLabel && <p className="mt-1 text-xs text-text-muted">Stagione {seasonLabel}</p>}
-          </Card>
-          <Card>
-            <p className="label-caption">Presenze / minuti</p>
-            <p className="mt-2 text-xl text-text-primary">
-              {seasonAppearances} / {seasonMinutes}&apos;
-            </p>
-            {seasonLabel && <p className="mt-1 text-xs text-text-muted">Stagione {seasonLabel}</p>}
-          </Card>
-          <Card>
-            <p className="label-caption">Rating medio</p>
-            <p className="mt-2 text-xl">
-              <RatingBadge rating={player.rating_avg} size="md" />
-            </p>
-          </Card>
-          <Card>
-            <p className="label-caption">xG / xA stagione</p>
-            <p className="mt-2 text-xl text-text-primary">
-              {player.is_xg_covered
-                ? `${player.xg_season?.toFixed(1) ?? '0.0'} / ${player.xa_season?.toFixed(1) ?? '0.0'}`
-                : <span className="text-text-muted">N/D</span>}
-            </p>
-          </Card>
-        </div>
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <Card title="Trend valore di mercato" className="lg:col-span-2">

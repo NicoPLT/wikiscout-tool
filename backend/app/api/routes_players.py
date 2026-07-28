@@ -159,6 +159,9 @@ def get_player_seasons(
             goals=o.goals,
             assists=o.assists,
             minutes_played=o.minutes_played,
+            starts=o.starts,
+            yellow_cards=o.yellow_cards,
+            red_cards=o.red_cards,
         )
         for o in options
     ]
