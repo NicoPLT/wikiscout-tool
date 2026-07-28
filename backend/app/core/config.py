@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # app/services/watch_alert_service.py). Configurabili via env senza
     # toccare il codice, per poterle affinare nel tempo.
     WATCH_ALERT_RATING_THRESHOLD: float = 7.5
+    # Partite consecutive per il criterio rating: separato da
+    # WATCH_ALERT_STREAK_MATCHES (goal/assist) perche' modificato di
+    # proposito a se' stante (2 -> 3), senza toccare gli altri due criteri.
+    WATCH_ALERT_RATING_STREAK_MATCHES: int = 3
     WATCH_ALERT_STREAK_MATCHES: int = 2
     WATCH_ALERT_RECENT_TRANSFER_DAYS: int = 30
     WATCH_ALERT_MARKET_VALUE_SPIKE_PCT: float = 20.0

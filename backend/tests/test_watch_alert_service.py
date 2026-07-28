@@ -10,6 +10,7 @@ from app.scrapers.transfermarkt_performance import TransferRecord
 from app.services import watch_alert_service as svc
 
 RATING_THRESHOLD = 7.5
+RATING_STREAK_LEN = 3
 STREAK_LEN = 2
 TRANSFER_DAYS = 30
 SPIKE_PCT = 20.0
@@ -31,27 +32,34 @@ def _match(days_ago: int, *, rating=None, goals=0, assists=0):
 
 
 def test_rating_streak_triggers_at_exact_threshold():
-    # Caso limite esplicitamente richiesto: rating esattamente 7.5 su
-    # entrambe le ultime 2 partite deve contare come trigger (">=", non ">").
-    matches = [_match(0, rating=7.5), _match(3, rating=7.5), _match(7, rating=9.0)]
-    detail = svc._detect_rating_streak(matches, RATING_THRESHOLD, STREAK_LEN)
+    # Caso limite esplicitamente richiesto: rating esattamente 7.5 sulle
+    # ultime 3 partite deve contare come trigger (">=", non ">").
+    matches = [_match(0, rating=7.5), _match(3, rating=7.5), _match(7, rating=7.5), _match(10, rating=9.0)]
+    detail = svc._detect_rating_streak(matches, RATING_THRESHOLD, RATING_STREAK_LEN)
     assert detail is not None
     assert "7.5" in detail
 
 
+def test_rating_streak_requires_three_matches_not_two():
+    # Modifica esplicitamente richiesta: 2 partite alte non bastano piu',
+    # ne servono 3 consecutive.
+    matches = [_match(0, rating=8.0), _match(3, rating=8.0)]
+    assert svc._detect_rating_streak(matches, RATING_THRESHOLD, RATING_STREAK_LEN) is None
+
+
 def test_rating_streak_does_not_trigger_if_one_match_below_threshold():
-    matches = [_match(0, rating=7.5), _match(3, rating=7.4)]
-    assert svc._detect_rating_streak(matches, RATING_THRESHOLD, STREAK_LEN) is None
+    matches = [_match(0, rating=7.5), _match(3, rating=7.5), _match(7, rating=7.4)]
+    assert svc._detect_rating_streak(matches, RATING_THRESHOLD, RATING_STREAK_LEN) is None
 
 
 def test_rating_streak_does_not_trigger_with_missing_rating():
-    matches = [_match(0, rating=8.0), _match(3, rating=None)]
-    assert svc._detect_rating_streak(matches, RATING_THRESHOLD, STREAK_LEN) is None
+    matches = [_match(0, rating=8.0), _match(3, rating=8.0), _match(7, rating=None)]
+    assert svc._detect_rating_streak(matches, RATING_THRESHOLD, RATING_STREAK_LEN) is None
 
 
 def test_rating_streak_does_not_trigger_with_fewer_matches_than_required():
-    matches = [_match(0, rating=9.0)]
-    assert svc._detect_rating_streak(matches, RATING_THRESHOLD, STREAK_LEN) is None
+    matches = [_match(0, rating=9.0), _match(3, rating=9.0)]
+    assert svc._detect_rating_streak(matches, RATING_THRESHOLD, RATING_STREAK_LEN) is None
 
 
 # --- _detect_goal_streak / _detect_assist_streak ---------------------------
@@ -159,7 +167,11 @@ def _seed_watchlisted_player(db_session, **player_kwargs) -> Player:
 
 def test_orchestrator_creates_alert_for_triggered_criterion(db_session):
     player = _seed_watchlisted_player(db_session)
-    for m in (_match(0, rating=8.0, goals=1), _match(3, rating=8.0, goals=1)):
+    for m in (
+        _match(0, rating=8.0, goals=1),
+        _match(3, rating=8.0, goals=1),
+        _match(7, rating=8.0, goals=0),
+    ):
         m.player_id = player.id
         db_session.add(m)
     db_session.commit()
@@ -177,7 +189,7 @@ def test_orchestrator_does_not_create_duplicate_alert_across_two_nightly_runs(db
     """Punto 8: far girare il job due notti di fila con dati che
     soddisfano lo stesso criterio non deve creare due alert identici."""
     player = _seed_watchlisted_player(db_session)
-    for m in (_match(0, rating=8.0), _match(3, rating=8.0)):
+    for m in (_match(0, rating=8.0), _match(3, rating=8.0), _match(7, rating=8.0)):
         m.player_id = player.id
         db_session.add(m)
     db_session.commit()
@@ -205,7 +217,7 @@ def test_orchestrator_recreates_alert_after_dismissal(db_session):
     """Un alert scartato non deve piu' contare come 'attivo' ai fini della
     dedup: se il criterio e' ancora vero, puo' essere ri-creato."""
     player = _seed_watchlisted_player(db_session)
-    for m in (_match(0, rating=8.0), _match(3, rating=8.0)):
+    for m in (_match(0, rating=8.0), _match(3, rating=8.0), _match(7, rating=8.0)):
         m.player_id = player.id
         db_session.add(m)
     db_session.commit()

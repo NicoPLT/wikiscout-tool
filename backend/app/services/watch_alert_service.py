@@ -118,7 +118,9 @@ def detect_alerts_for_player(db: Session, player: Player, today: date | None = N
 
     candidates: list[tuple[WatchAlertTriggerType, str]] = []
 
-    detail = _detect_rating_streak(matches, settings.WATCH_ALERT_RATING_THRESHOLD, settings.WATCH_ALERT_STREAK_MATCHES)
+    detail = _detect_rating_streak(
+        matches, settings.WATCH_ALERT_RATING_THRESHOLD, settings.WATCH_ALERT_RATING_STREAK_MATCHES
+    )
     if detail:
         candidates.append((WatchAlertTriggerType.rating_streak, detail))
 
