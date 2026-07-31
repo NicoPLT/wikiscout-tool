@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Card } from '../ui/Card'
 import { RatingBadge } from '../ui/RatingBadge'
-import type { PlayerSeasonOption } from '../../types/player'
+import type { CompetitionStint, PlayerSeasonOption } from '../../types/player'
 
 function TrophyIcon() {
   return (
@@ -50,6 +50,7 @@ interface SeasonStatsCardProps {
   isXgCovered: boolean
   xg: number | null
   xa: number | null
+  competitions: CompetitionStint[]
 }
 
 export function SeasonStatsCard({
@@ -69,6 +70,7 @@ export function SeasonStatsCard({
   isXgCovered,
   xg,
   xa,
+  competitions,
 }: SeasonStatsCardProps) {
   return (
     <Card>
@@ -124,6 +126,38 @@ export function SeasonStatsCard({
           </StatCell>
         </div>
       </div>
+
+      {competitions.length > 1 && (
+        <div className="mt-4 border-t border-border-subtle pt-4">
+          <p className="label-caption mb-2">Dettaglio per competizione</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border-subtle text-left text-text-muted">
+                  <th className="pb-2 pr-4 font-medium">Squadra</th>
+                  <th className="pb-2 pr-4 font-medium">Competizione</th>
+                  <th className="pb-2 pr-4 font-medium">Partite</th>
+                  <th className="pb-2 pr-4 font-medium">Goal</th>
+                  <th className="pb-2 pr-4 font-medium">Assist</th>
+                  <th className="pb-2 pr-4 font-medium">Minuti</th>
+                </tr>
+              </thead>
+              <tbody>
+                {competitions.map((c) => (
+                  <tr key={`${c.club_id}-${c.competition_id}`} className="border-b border-border-subtle last:border-b-0">
+                    <td className="py-2 pr-4 text-text-primary">{c.club_name ?? 'N/D'}</td>
+                    <td className="py-2 pr-4 text-text-secondary">{c.competition_name ?? 'N/D'}</td>
+                    <td className="py-2 pr-4 text-text-primary">{c.appearances}</td>
+                    <td className="py-2 pr-4 text-text-primary">{c.goals}</td>
+                    <td className="py-2 pr-4 text-text-primary">{c.assists}</td>
+                    <td className="py-2 pr-4 text-text-primary">{c.minutes_played}&apos;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {isXgCovered && (
         <p className="mt-4 border-t border-border-subtle pt-3 text-xs text-text-muted">

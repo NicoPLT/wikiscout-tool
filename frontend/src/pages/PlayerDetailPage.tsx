@@ -159,6 +159,7 @@ export function PlayerDetailPage() {
   const seasonStarts = displayedSeason ? displayedSeason.starts : player.starts_season
   const seasonYellowCards = displayedSeason ? displayedSeason.yellow_cards : player.yellow_cards_season
   const seasonRedCards = displayedSeason ? displayedSeason.red_cards : player.red_cards_season
+  const seasonCompetitions = displayedSeason ? displayedSeason.competitions : []
 
   return (
     <AppLayout>
@@ -250,6 +251,7 @@ export function PlayerDetailPage() {
             yellowCards={seasonYellowCards}
             redCards={seasonRedCards}
             isXgCovered={player.is_xg_covered}
+            competitions={seasonCompetitions}
             xg={player.xg_season}
             xa={player.xa_season}
           />

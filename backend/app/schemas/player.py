@@ -184,9 +184,30 @@ class PlayerTransfer(BaseModel):
     season_label: str | None
 
 
+class CompetitionStintOut(BaseModel):
+    """Dettaglio per competizione (e club) dentro una stagione: un
+    giocatore puo' averne piu' d'uno nella stessa stagione (coppe,
+    competizioni europee, o un altro club prima di un trasferimento a
+    meta' stagione)."""
+
+    competition_id: str
+    competition_name: str | None
+    club_id: str
+    club_name: str | None
+    appearances: int
+    goals: int
+    assists: int
+    minutes_played: int
+    starts: int = 0
+    yellow_cards: int = 0
+    red_cards: int = 0
+
+
 class PlayerSeasonOption(BaseModel):
     """Una voce del selettore stagioni nella pagina di dettaglio (sola
-    lettura: non modifica la 'stagione corrente' salvata sul giocatore)."""
+    lettura: non modifica la 'stagione corrente' salvata sul giocatore).
+    I campi numerici sono il totale su TUTTE le competizioni/club di quella
+    stagione; `competitions` ne porta il dettaglio riga per riga."""
 
     season_id: int
     season_label: str
@@ -198,3 +219,4 @@ class PlayerSeasonOption(BaseModel):
     starts: int = 0
     yellow_cards: int = 0
     red_cards: int = 0
+    competitions: list[CompetitionStintOut] = []

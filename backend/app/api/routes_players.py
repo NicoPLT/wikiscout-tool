@@ -5,6 +5,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.player import (
+    CompetitionStintOut,
     PlayerDetail,
     PlayerRow,
     PlayerSearchResult,
@@ -162,6 +163,22 @@ def get_player_seasons(
             starts=o.starts,
             yellow_cards=o.yellow_cards,
             red_cards=o.red_cards,
+            competitions=[
+                CompetitionStintOut(
+                    competition_id=c.competition_id,
+                    competition_name=c.competition_name,
+                    club_id=c.club_id,
+                    club_name=c.club_name,
+                    appearances=c.appearances,
+                    goals=c.goals,
+                    assists=c.assists,
+                    minutes_played=c.minutes_played,
+                    starts=c.starts,
+                    yellow_cards=c.yellow_cards,
+                    red_cards=c.red_cards,
+                )
+                for c in o.competitions
+            ],
         )
         for o in options
     ]

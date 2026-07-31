@@ -119,6 +119,20 @@ export interface PlayerTransfer {
   season_label: string | null
 }
 
+export interface CompetitionStint {
+  competition_id: string
+  competition_name: string | null
+  club_id: string
+  club_name: string | null
+  appearances: number
+  goals: number
+  assists: number
+  minutes_played: number
+  starts: number
+  yellow_cards: number
+  red_cards: number
+}
+
 export interface PlayerSeasonOption {
   season_id: number
   season_label: string
@@ -130,6 +144,7 @@ export interface PlayerSeasonOption {
   starts: number
   yellow_cards: number
   red_cards: number
+  competitions: CompetitionStint[]
 }
 
 export interface WatchlistSummary {

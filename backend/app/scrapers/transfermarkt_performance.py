@@ -101,7 +101,36 @@ class MarketValuePoint(BaseModel):
     value_eur: float
 
 
+class CompetitionStint(BaseModel):
+    """Una voce del dettaglio per competizione dentro una stagione: un
+    giocatore puo' averne piu' d'una nella stessa stagione (coppe,
+    competizioni europee, o un altro club prima di un trasferimento a
+    meta' stagione)."""
+
+    competition_id: str
+    competition_name: str | None = None
+    club_id: str
+    club_name: str | None = None
+    appearances: int
+    goals: int
+    assists: int
+    minutes_played: int
+    starts: int = 0
+    yellow_cards: int = 0
+    red_cards: int = 0
+
+
 class SeasonSummary(BaseModel):
+    """Aggregato di UNA stagione. I campi numerici sono il TOTALE su tutte
+    le competizioni e tutti i club di quella stagione (non solo il
+    campionato principale del club attuale): altrimenti si perdono goal/
+    assist fatti in coppe/competizioni europee, o con un altro club prima
+    di un trasferimento a meta' stagione. competition_id/competition_name
+    restano solo un'ETICHETTA (il campionato domestico principale del club
+    attuale, se ci ha gia' giocato quella stagione) usata per il titolo
+    nella UI; il dettaglio completo e' in `competitions`.
+    """
+
     season_id: int
     season_label: str
     competition_id: str
@@ -114,6 +143,7 @@ class SeasonSummary(BaseModel):
     starts: int = 0
     yellow_cards: int = 0
     red_cards: int = 0
+    competitions: list[CompetitionStint] = []
 
 
 def is_configured() -> bool:
@@ -286,66 +316,100 @@ def _pick_competition_for_season(season_games: list[dict], primary_competition_i
     return max(counts, key=counts.get)
 
 
+def _aggregate_games(games: list[dict]) -> dict:
+    return dict(
+        appearances=len(games),
+        goals=sum(g["statistics"]["goalStatistics"].get("goalsScoredTotal") or 0 for g in games),
+        assists=sum(g["statistics"]["goalStatistics"].get("assists") or 0 for g in games),
+        minutes_played=sum(g["statistics"]["playingTimeStatistics"].get("playedMinutes") or 0 for g in games),
+        starts=sum(1 for g in games if _was_starter(g)),
+        yellow_cards=sum(_yellow_cards(g) for g in games),
+        red_cards=sum(1 for g in games if _was_sent_off(g)),
+    )
+
+
 def list_season_options(player_id: str, current_club_id: str, max_seasons: int = 6) -> list[SeasonSummary]:
-    """Elenco delle ultime `max_seasons` stagioni per cui il giocatore ha
-    davvero giocato con `current_club_id` (piu' recente prima), ciascuna con
-    il campionato domestico principale gia' scelto. Usato sia per
-    l'aggregato 'stagione corrente' (get_season_summary = il primo elemento)
-    sia per il selettore stagioni in UI, cosi' lo scout puo' vedere anche
-    l'ultima stagione con dati reali quando quella in corso non ne ha ancora
-    (giocatore appena trasferito, stagione appena iniziata, infortunio, ecc.),
-    esattamente come mostrano Sofascore/Transfermarkt stessi con il loro
-    menu a tendina delle stagioni.
+    """Elenco delle ultime `max_seasons` stagioni giocate (piu' recente
+    prima), piu' recente prima. Il totale di ciascuna somma TUTTE le
+    competizioni e TUTTI i club di quella stagione (non solo il campionato
+    principale del club attuale): un filtro solo sul club attuale perdeva
+    silenziosamente le partite giocate con un altro club prima di un
+    trasferimento a meta' stagione, e un filtro solo sul campionato
+    principale perdeva le coppe/competizioni europee — in un caso reale
+    riscontrato, un giocatore con 2 club e 4 competizioni in una stagione
+    risultava con 3 goal invece dei ~16 reali. `competitions` porta il
+    dettaglio completo per la UI (punto di riferimento restano
+    Sofascore/Transfermarkt, che infatti mostrano sempre lo storico
+    partite/goal suddiviso per competizione).
     """
-    games = [
-        g
-        for g in get_all_games(player_id)
-        if _was_played(g)
-        and not g["gameInformation"].get("isNationalGame")
-        and g["clubsInformation"]["club"]["clubId"] == current_club_id
-    ]
-    if not games:
+    all_games = [g for g in get_all_games(player_id) if _was_played(g) and not g["gameInformation"].get("isNationalGame")]
+    if not all_games:
         return []
 
     primary_competition_id = get_club_primary_competition(current_club_id)
 
     by_season: dict[int, list[dict]] = {}
     season_labels: dict[int, str] = {}
-    for g in games:
+    for g in all_games:
         season_id = g["gameInformation"]["seasonId"]
         by_season.setdefault(season_id, []).append(g)
         season_labels[season_id] = g["gameInformation"]["season"].get("nonCyclicalName") or str(season_id)
 
     ordered_season_ids = sorted(by_season.keys(), reverse=True)[:max_seasons]
 
-    picked: list[tuple[int, str, list[dict]]] = []
+    all_competition_ids: set[str] = set()
+    all_club_ids: set[str] = set()
+    for season_id in ordered_season_ids:
+        for g in by_season[season_id]:
+            all_competition_ids.add(g["gameInformation"]["competitionId"])
+            all_club_ids.add(g["clubsInformation"]["club"]["clubId"])
+    comp_names = resolve_competition_names(all_competition_ids)
+    club_names = resolve_club_names(all_club_ids)
+
+    summaries: list[SeasonSummary] = []
     for season_id in ordered_season_ids:
         season_games = by_season[season_id]
-        competition_id = _pick_competition_for_season(season_games, primary_competition_id)
-        comp_games = [g for g in season_games if g["gameInformation"]["competitionId"] == competition_id]
-        picked.append((season_id, competition_id, comp_games))
 
-    comp_names = resolve_competition_names({competition_id for _, competition_id, _ in picked})
+        by_comp_club: dict[tuple[str, str], list[dict]] = {}
+        for g in season_games:
+            key = (g["gameInformation"]["competitionId"], g["clubsInformation"]["club"]["clubId"])
+            by_comp_club.setdefault(key, []).append(g)
 
-    return [
-        SeasonSummary(
-            season_id=season_id,
-            season_label=season_labels[season_id],
-            competition_id=competition_id,
-            competition_name=comp_names.get(competition_id),
-            club_id=current_club_id,
-            appearances=len(comp_games),
-            goals=sum(g["statistics"]["goalStatistics"].get("goalsScoredTotal") or 0 for g in comp_games),
-            assists=sum(g["statistics"]["goalStatistics"].get("assists") or 0 for g in comp_games),
-            minutes_played=sum(
-                g["statistics"]["playingTimeStatistics"].get("playedMinutes") or 0 for g in comp_games
-            ),
-            starts=sum(1 for g in comp_games if _was_starter(g)),
-            yellow_cards=sum(_yellow_cards(g) for g in comp_games),
-            red_cards=sum(1 for g in comp_games if _was_sent_off(g)),
+        competitions = [
+            CompetitionStint(
+                competition_id=comp_id,
+                competition_name=comp_names.get(comp_id),
+                club_id=club_id,
+                club_name=club_names.get(club_id),
+                **_aggregate_games(comp_club_games),
+            )
+            for (comp_id, club_id), comp_club_games in sorted(
+                by_comp_club.items(), key=lambda kv: len(kv[1]), reverse=True
+            )
+        ]
+
+        # Etichetta (competition_id/competition_name): il campionato
+        # domestico principale del club ATTUALE se ci ha gia' giocato
+        # questa stagione, altrimenti la competizione con piu' presenze in
+        # assoluto quella stagione — solo per il titolo mostrato in UI, non
+        # filtra piu' i numeri (che sono sempre il totale su tutto).
+        club_season_games = [g for g in season_games if g["clubsInformation"]["club"]["clubId"] == current_club_id]
+        label_source_games = club_season_games or season_games
+        label_competition_id = _pick_competition_for_season(label_source_games, primary_competition_id)
+
+        summaries.append(
+            SeasonSummary(
+                season_id=season_id,
+                season_label=season_labels[season_id],
+                competition_id=label_competition_id,
+                competition_name=comp_names.get(label_competition_id),
+                club_id=current_club_id,
+                competitions=competitions,
+                **_aggregate_games(season_games),
+            )
         )
-        for season_id, competition_id, comp_games in picked
-    ]
+
+    return summaries
 
 
 def get_season_summary(player_id: str, current_club_id: str) -> SeasonSummary | None:
