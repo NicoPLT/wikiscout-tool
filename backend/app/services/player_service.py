@@ -128,9 +128,13 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
 
     # Risolti qui (non solo a import/job notturno) cosi' compaiono alla
     # prima apertura della scheda invece di aspettare il giro notturno,
-    # per i giocatori importati prima che questi campi esistessero.
+    # per i giocatori importati prima che questi campi esistessero (fotmob/
+    # data di nascita) o il cui collegamento Sofascore e' stato
+    # volutamente rimandato dall'import per non bloccare il "+ Aggiungi"
+    # (vedi resolve_sofascore_link).
     changed = resolve_fotmob_link(player)
     changed = resolve_date_of_birth(player) or changed
+    changed = resolve_sofascore_link(db, player) or changed
     if changed:
         db.commit()
         # La dashboard legge la watchlist da cache (fino a CACHE_TTL_SECONDS):
@@ -295,8 +299,14 @@ def import_player_from_transfermarkt(
     resolve_fotmob_link(player)
     resolve_date_of_birth(player)
 
-    with sofascore.SofascoreSession() as session:
-        link_sofascore_profile(db, session, player)
+    # Il collegamento Sofascore (ricerca nome + fetch statistiche via
+    # browser Playwright) e' di gran lunga il passo piu' lento dell'import
+    # (misurato dal vivo: da solo ~25-30s, piu' del resto messo insieme) —
+    # farlo qui bloccava il click "+ Aggiungi" per oltre un minuto,
+    # abbastanza da sembrare non funzionante. Si risolve invece on-demand
+    # alla prima apertura della scheda giocatore (vedi get_player_detail,
+    # stesso pattern gia' usato per fotmob_id/date_of_birth) o dal job
+    # notturno, cosi' l'aggiunta in watchlist resta rapida.
 
     db.commit()
     db.refresh(player)
@@ -438,6 +448,20 @@ def resolve_fotmob_link(player: Player) -> bool:
         return False
     player.fotmob_id = fotmob_id
     return True
+
+
+def resolve_sofascore_link(db: Session, player: Player) -> bool:
+    """Come resolve_fotmob_link/resolve_date_of_birth: non fa nulla se gia'
+    collegato. A differenza degli altri due, apre una sessione browser
+    Playwright (e' di gran lunga il passo piu' lento tra tutti i
+    collegamenti automatici, ~25-30s misurati dal vivo) — per questo NON
+    viene piu' chiamato nel percorso sincrono dell'import (vedi
+    import_player_from_transfermarkt), solo qui on-demand alla prima
+    apertura della scheda, o dal job notturno."""
+    if player.sofascore_id:
+        return False
+    with sofascore.SofascoreSession() as session:
+        return link_sofascore_profile(db, session, player)
 
 
 def get_player_season_options(db: Session, player_id: int) -> list["transfermarkt_performance.SeasonSummary"]:

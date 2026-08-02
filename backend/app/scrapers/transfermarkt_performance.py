@@ -183,54 +183,101 @@ def _get(path: str, params: dict | None = None) -> dict:
     return data
 
 
+_ALL_GAMES_CACHE_TTL_SECONDS = 60.0
+_all_games_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
 def get_all_games(player_id: str) -> list[dict]:
     """Tutte le partite in carriera del giocatore (grezze). L'endpoint non
     supporta filtro lato server per stagione, quindi filtriamo lato nostro
-    nelle funzioni piu' in alto (`get_recent_matches`/`get_season_summary`).
+    nelle funzioni piu' in alto (`get_recent_matches`/`get_season_summary`/
+    `get_current_club_id`).
+
+    Cache locale a breve TTL: import_player_from_transfermarkt chiama tutte
+    e tre queste funzioni sullo stesso player_id nello stesso giro, quindi
+    senza cache si rifà 3 volte la stessa richiesta pesante (l'intera
+    carriera, anche centinaia di partite) — misurato dal vivo: un singolo
+    import poteva superare il minuto, abbastanza da sembrare bloccato o far
+    scadere la richiesta lato utente/proxy prima ancora di arrivare al
+    salvataggio. 60s basta a coprire un giro di import/job senza rischiare
+    di servire dati stantii al giro successivo.
     """
+    cached = _all_games_cache.get(player_id)
+    if cached is not None and time.monotonic() - cached[0] < _ALL_GAMES_CACHE_TTL_SECONDS:
+        return cached[1]
+
     try:
         data = _get(f"/player/{player_id}/performance-game")
     except httpx.HTTPError as exc:
         logger.error("Errore fetch performance-game per player_id=%s: %s", player_id, exc)
         return []
-    return data.get("data", {}).get("performance", [])
+    games = data.get("data", {}).get("performance", [])
+
+    if len(_all_games_cache) > 500:
+        _all_games_cache.clear()
+    _all_games_cache[player_id] = (time.monotonic(), games)
+    return games
+
+
+# Nome di una competizione/club non cambia mai durante la vita del processo:
+# a differenza della cache sopra (a TTL, per dati che cambiano) questa resta
+# valida per sempre e permette di non richiederlo di nuovo per lo stesso id,
+# sia nello stesso import (list_season_options e get_recent_matches lo
+# risolvono entrambe) sia tra giocatori diversi che condividono campionato/
+# squadra (frequente nel job notturno).
+_competition_name_cache: dict[str, str] = {}
+_club_name_cache: dict[str, str] = {}
 
 
 def resolve_competition_names(competition_ids: set[str]) -> dict[str, str]:
     if not competition_ids:
         return {}
-    try:
-        data = _get("/competitions", params={"ids[]": sorted(competition_ids)})
-    except httpx.HTTPError as exc:
-        logger.error("Errore risoluzione nomi competizioni %s: %s", competition_ids, exc)
-        return {}
-    return {c["id"]: c["name"] for c in data.get("data", [])}
+    missing = competition_ids - _competition_name_cache.keys()
+    if missing:
+        try:
+            data = _get("/competitions", params={"ids[]": sorted(missing)})
+            for c in data.get("data", []):
+                _competition_name_cache[c["id"]] = c["name"]
+        except httpx.HTTPError as exc:
+            logger.error("Errore risoluzione nomi competizioni %s: %s", missing, exc)
+    return {cid: _competition_name_cache[cid] for cid in competition_ids if cid in _competition_name_cache}
 
 
 def resolve_club_names(club_ids: set[str]) -> dict[str, str]:
     if not club_ids:
         return {}
-    try:
-        data = _get("/clubs", params={"ids[]": sorted(club_ids)})
-    except httpx.HTTPError as exc:
-        logger.error("Errore risoluzione nomi club %s: %s", club_ids, exc)
-        return {}
-    return {c["id"]: c["name"] for c in data.get("data", [])}
+    missing = club_ids - _club_name_cache.keys()
+    if missing:
+        try:
+            data = _get("/clubs", params={"ids[]": sorted(missing)})
+            for c in data.get("data", []):
+                _club_name_cache[c["id"]] = c["name"]
+        except httpx.HTTPError as exc:
+            logger.error("Errore risoluzione nomi club %s: %s", missing, exc)
+    return {cid: _club_name_cache[cid] for cid in club_ids if cid in _club_name_cache}
+
+
+_club_primary_competition_cache: dict[str, str | None] = {}
 
 
 def get_club_primary_competition(club_id: str) -> str | None:
     """Campionato domestico principale del club (dato ufficiale Transfermarkt,
     non una euristica): usato per scegliere la competizione 'principale' del
-    giocatore in modo affidabile."""
+    giocatore in modo affidabile. Cache permanente come per i nomi sopra: non
+    cambia durante la stagione, e il job notturno lo richiede per molti
+    giocatori dello stesso club."""
+    if club_id in _club_primary_competition_cache:
+        return _club_primary_competition_cache[club_id]
+
     try:
         data = _get("/clubs", params={"ids[]": [club_id]})
     except httpx.HTTPError as exc:
         logger.error("Errore fetch club_id=%s: %s", club_id, exc)
         return None
     clubs = data.get("data", [])
-    if not clubs:
-        return None
-    return clubs[0].get("baseDetails", {}).get("primaryCompetitionId")
+    primary_competition_id = clubs[0].get("baseDetails", {}).get("primaryCompetitionId") if clubs else None
+    _club_primary_competition_cache[club_id] = primary_competition_id
+    return primary_competition_id
 
 
 def _was_played(game: dict) -> bool:
