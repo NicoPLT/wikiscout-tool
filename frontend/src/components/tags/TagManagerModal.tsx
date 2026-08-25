@@ -52,7 +52,7 @@ export function TagManagerModal({ open, tags, onClose, onTagsChanged }: TagManag
       role="presentation"
     >
       <div
-        className="w-full max-w-md rounded-card border border-border-subtle bg-bg-surface p-6 shadow-lg"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-card border border-border-subtle bg-bg-surface p-4 shadow-lg sm:p-6"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

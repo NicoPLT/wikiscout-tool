@@ -24,6 +24,8 @@ import { hexToRgba } from '../../lib/ratingScale'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { Button } from '../ui/Button'
 import { TagSelect } from '../tags/TagSelect'
+import { PlayersMobileList } from './PlayersMobileList'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -76,6 +78,11 @@ export function PlayersGrid({ rows, tags, onRowRemoved, onTagAssigned }: Players
   const [selectedRows, setSelectedRows] = useState<PlayerRow[]>([])
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval>(null)
   const [isRemoving, setIsRemoving] = useState(false)
+  // Sotto lg (1024px) le 16 colonne di AG Grid non hanno senso su schermo
+  // stretto: si mostra invece una lista di card (PlayersMobileList). Non
+  // montiamo AG Grid affatto in quel caso (e' pesante e non verrebbe mai
+  // mostrata), invece di limitarci a nasconderla con CSS.
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
 
   function requestRemove(player: PlayerRow) {
     setPendingRemoval({ players: [player] })
@@ -260,44 +267,48 @@ export function PlayersGrid({ rows, tags, onRowRemoved, onTagAssigned }: Players
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
-        <AgGridReact<PlayerRow>
-          ref={gridRef}
-          theme={wikiscoutGridTheme}
-          rowData={rows}
-          columnDefs={columnDefs}
-          defaultColDef={defaultColDef}
-          getRowId={(p) => String(p.data.id)}
-          getRowStyle={(params): RowStyle | undefined =>
-            params.data?.tag
-              ? {
-                  borderLeft: `3px solid ${params.data.tag.color}`,
-                  backgroundColor: hexToRgba(params.data.tag.color, 0.07),
-                }
-              : undefined
-          }
-          onRowClicked={(e) => {
-            // AG Grid dispatches rowClicked for any click inside the row,
-            // including custom cell renderers with interactive elements
-            // (il select dei tag, il bottone "Rimuovi"): React's
-            // stopPropagation dentro quei renderer non basta a fermarlo,
-            // quindi va escluso qui in base all'elemento cliccato.
-            const target = e.event?.target as HTMLElement | null
-            if (target?.closest('select, button, input, a')) return
-            if (e.data) navigate(`/players/${e.data.id}`)
-          }}
-          onSelectionChanged={(e: SelectionChangedEvent<PlayerRow>) => setSelectedRows(e.api.getSelectedRows())}
-          rowSelection={{
-            mode: 'multiRow',
-            checkboxes: true,
-            headerCheckbox: true,
-            enableClickSelection: false,
-          }}
-          rowHeight={52}
-          headerHeight={44}
-          animateRows
-        />
-      </div>
+      {isDesktop ? (
+        <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
+          <AgGridReact<PlayerRow>
+            ref={gridRef}
+            theme={wikiscoutGridTheme}
+            rowData={rows}
+            columnDefs={columnDefs}
+            defaultColDef={defaultColDef}
+            getRowId={(p) => String(p.data.id)}
+            getRowStyle={(params): RowStyle | undefined =>
+              params.data?.tag
+                ? {
+                    borderLeft: `3px solid ${params.data.tag.color}`,
+                    backgroundColor: hexToRgba(params.data.tag.color, 0.07),
+                  }
+                : undefined
+            }
+            onRowClicked={(e) => {
+              // AG Grid dispatches rowClicked for any click inside the row,
+              // including custom cell renderers with interactive elements
+              // (il select dei tag, il bottone "Rimuovi"): React's
+              // stopPropagation dentro quei renderer non basta a fermarlo,
+              // quindi va escluso qui in base all'elemento cliccato.
+              const target = e.event?.target as HTMLElement | null
+              if (target?.closest('select, button, input, a')) return
+              if (e.data) navigate(`/players/${e.data.id}`)
+            }}
+            onSelectionChanged={(e: SelectionChangedEvent<PlayerRow>) => setSelectedRows(e.api.getSelectedRows())}
+            rowSelection={{
+              mode: 'multiRow',
+              checkboxes: true,
+              headerCheckbox: true,
+              enableClickSelection: false,
+            }}
+            rowHeight={52}
+            headerHeight={44}
+            animateRows
+          />
+        </div>
+      ) : (
+        <PlayersMobileList rows={rows} tags={tags} onTagAssigned={onTagAssigned} onRequestRemove={requestRemove} />
+      )}
 
       <ConfirmDialog
         open={pendingRemoval !== null}

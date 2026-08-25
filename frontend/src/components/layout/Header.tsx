@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addToWatchlist, importPlayerFromTransfermarkt, searchPlayers } from '../../lib/playersApi'
 import type { PlayerSearchResult } from '../../types/player'
 import { Spinner } from '../ui/Spinner'
+import { Logo } from '../Logo'
 
 interface HeaderProps {
   userEmail: string | null
@@ -70,13 +71,15 @@ export function Header({ userEmail, onPlayerAdded }: HeaderProps) {
   }
 
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-border-subtle bg-bg-primary px-6 py-4">
-      <div ref={containerRef} className="relative w-full max-w-md">
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle bg-bg-primary px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
+      <Logo iconOnly className="shrink-0 lg:hidden" />
+
+      <div ref={containerRef} className="relative min-w-0 flex-1 sm:max-w-md">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => results.length > 0 && setIsOpen(true)}
-          placeholder="Cerca giocatore per nome (es. Bellandi)..."
+          placeholder="Cerca giocatore..."
           className="w-full rounded-md border border-border-subtle bg-bg-surface px-4 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
         />
 
@@ -128,12 +131,15 @@ export function Header({ userEmail, onPlayerAdded }: HeaderProps) {
         )}
       </div>
 
-      {importError && <span className="text-xs text-danger">{importError}</span>}
+      {importError && <span className="w-full text-xs text-danger sm:w-auto">{importError}</span>}
 
       {userEmail && (
-        <div className="flex items-center gap-2 text-sm text-text-secondary">
+        // Nascosta sotto sm: sul telefono la ricerca e' l'azione primaria e
+        // deve avere tutta la larghezza disponibile (altrimenti il dropdown
+        // dei risultati si schiaccia troppo per essere leggibile).
+        <div className="hidden min-w-0 items-center gap-2 text-sm text-text-secondary sm:flex sm:max-w-xs">
           <span className="label-caption">Scout</span>
-          <span className="text-text-primary">{userEmail}</span>
+          <span className="truncate text-text-primary">{userEmail}</span>
         </div>
       )}
     </header>

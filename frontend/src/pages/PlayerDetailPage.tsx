@@ -219,7 +219,7 @@ export function PlayerDetailPage() {
                 </div>
               )}
             </div>
-            <div className="text-right">
+            <div className="w-full text-left sm:w-auto sm:text-right">
               <p className="metric-value text-text-primary">{formatCurrency(player.market_value_eur)}</p>
               {player.market_value_change_pct !== null && (
                 <Badge tone={player.market_value_change_pct >= 0 ? 'positive' : 'negative'}>
@@ -338,7 +338,7 @@ export function PlayerDetailPage() {
                 value={sofascoreInput}
                 onChange={(e) => setSofascoreInput(e.target.value)}
                 placeholder="https://www.sofascore.com/player/..."
-                className="min-w-[280px] flex-1 rounded-md border border-border-subtle bg-bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
+                className="w-full min-w-0 flex-1 rounded-md border border-border-subtle bg-bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none sm:w-auto sm:min-w-[280px]"
               />
               <Button onClick={handleLinkSofascore} disabled={isLinkingSofascore || !sofascoreInput.trim()}>
                 {isLinkingSofascore ? 'Collegamento...' : 'Collega'}

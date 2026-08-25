@@ -49,11 +49,11 @@ export function AppLayout({ children, onDataChanged }: PropsWithChildren<AppLayo
   }
 
   return (
-    <div className="flex h-screen bg-bg-primary text-text-primary">
+    <div className="flex h-dvh flex-col bg-bg-primary text-text-primary lg:flex-row">
       <Sidebar onLogout={handleLogout} unseenWatchAlertCount={unseenCount} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header userEmail={email} onPlayerAdded={() => onDataChanged?.()} />
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-4 pb-24 sm:p-6 sm:pb-24 lg:pb-6">{children}</main>
       </div>
     </div>
   )

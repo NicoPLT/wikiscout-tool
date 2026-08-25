@@ -27,8 +27,8 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-bg-primary px-4">
-      <div className="w-full max-w-sm rounded-card border border-border-subtle bg-bg-surface p-8">
+    <div className="flex h-dvh items-center justify-center bg-bg-primary px-4">
+      <div className="w-full max-w-sm rounded-card border border-border-subtle bg-bg-surface p-6 sm:p-8">
         <div className="mb-6 flex justify-center">
           <Logo />
         </div>

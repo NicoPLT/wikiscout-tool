@@ -39,51 +39,43 @@ interface SidebarProps {
   unseenWatchAlertCount?: number
 }
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `relative flex h-11 w-11 shrink-0 items-center justify-center rounded-md transition-colors lg:h-10 lg:w-10 ${
+    isActive
+      ? 'bg-accent-primary text-text-onaccent'
+      : 'text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary'
+  }`
+
 export function Sidebar({ onLogout, unseenWatchAlertCount = 0 }: SidebarProps) {
   return (
-    <aside className="flex h-full w-18 flex-col items-center justify-between border-r border-border-subtle bg-bg-surface py-5">
-      <div className="flex flex-col items-center gap-8">
-        <Logo iconOnly />
-        <nav className="flex flex-col gap-2">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) =>
-              `flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                isActive
-                  ? 'bg-accent-primary text-text-onaccent'
-                  : 'text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary'
-              }`
-            }
-            title="Dashboard"
-          >
+    <aside
+      className="fixed inset-x-0 bottom-0 z-40 flex h-16 flex-row items-center justify-around border-t border-border-subtle bg-bg-surface px-2 pb-[env(safe-area-inset-bottom)] lg:static lg:inset-auto lg:h-full lg:w-18 lg:flex-col lg:items-center lg:justify-between lg:border-r lg:border-t-0 lg:px-0 lg:py-5 lg:pb-5"
+    >
+      <div className="flex w-full flex-1 flex-row items-center justify-around gap-1 lg:w-auto lg:flex-none lg:flex-col lg:items-center lg:justify-start lg:gap-8">
+        <Logo iconOnly className="hidden lg:flex" />
+
+        <nav className="flex w-full flex-row items-center justify-around gap-1 lg:w-auto lg:flex-col lg:justify-start lg:gap-2">
+          <NavLink to="/" end className={navLinkClass} title="Dashboard">
             <GridIcon />
           </NavLink>
-          <NavLink
-            to="/one-to-watch"
-            className={({ isActive }) =>
-              `relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                isActive
-                  ? 'bg-accent-primary text-text-onaccent'
-                  : 'text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary'
-              }`
-            }
-            title="One to Watch"
-          >
+          <NavLink to="/one-to-watch" className={navLinkClass} title="One to Watch">
             <FlameIcon />
             {unseenWatchAlertCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-text-primary">
+              <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-text-primary lg:-right-1 lg:-top-1">
                 {unseenWatchAlertCount > 9 ? '9+' : unseenWatchAlertCount}
               </span>
             )}
           </NavLink>
+          <button onClick={onLogout} title="Esci" className={`${navLinkClass({ isActive: false })} lg:hidden`}>
+            <LogoutIcon />
+          </button>
         </nav>
       </div>
 
       <button
         onClick={onLogout}
         title="Esci"
-        className="flex h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-surface-hover hover:text-danger"
+        className="hidden h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-surface-hover hover:text-danger lg:flex"
       >
         <LogoutIcon />
       </button>

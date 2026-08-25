@@ -39,14 +39,18 @@ export function DashboardPage() {
         )}
 
         <Card className="flex flex-1 flex-col">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl text-text-primary">Watchlist</h1>
               <p className="mt-1 text-sm text-text-secondary">
                 Tutti i giocatori seguiti. Apri una scheda per rating, valore di mercato e ultimi aggiornamenti.
               </p>
             </div>
-            <Button variant="secondary" onClick={() => setIsTagManagerOpen(true)} className="!px-3 !py-1.5 text-xs">
+            <Button
+              variant="secondary"
+              onClick={() => setIsTagManagerOpen(true)}
+              className="shrink-0 self-start whitespace-nowrap !px-3 !py-1.5 text-xs sm:self-auto"
+            >
               Gestisci tag
             </Button>
           </div>
