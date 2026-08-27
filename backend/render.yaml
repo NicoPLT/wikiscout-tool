@@ -1,0 +1,61 @@
+# Blueprint Render per il backend WikiScout (piano Free).
+#
+# Due servizi:
+#   1. wikiscout-backend: il servizio web vero e proprio, stesso Dockerfile
+#      gia' usato su Railway (immagine ufficiale Playwright), nessuna
+#      modifica necessaria.
+#   2. wikiscout-nightly-trigger: un Cron Job leggero (immagine curl, non
+#      il Dockerfile dell'app) che richiama POST /internal/nightly-job una
+#      volta al giorno — sostituisce lo scheduler interno (APScheduler),
+#      che su un piano free non si sveglierebbe da solo perche' il
+#      servizio web si addormenta dopo inattivita' (vedi
+#      app/api/routes_internal.py per i dettagli).
+#
+# Uso: Render Dashboard -> New -> Blueprint -> punta a questo repo. I
+# valori con "sync: false" vanno inseriti a mano nel dashboard Render
+# (non nel repo): sono segreti o dipendono dall'ambiente.
+#
+# IMPORTANTE dopo il primo deploy: il Cron Job qui sotto chiama
+# https://wikiscout-backend.onrender.com — sostituiscilo con l'URL vero
+# assegnato da Render al servizio web (visibile nel suo dashboard), che
+# potrebbe differire se il nome "wikiscout-backend" risulta gia' in uso.
+
+services:
+  - type: web
+    name: wikiscout-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false # connection string "pooled" di Neon
+      - key: SECRET_KEY
+        sync: false
+      - key: AUTH_EMAIL
+        sync: false
+      - key: AUTH_PASSWORD_HASH
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false # URL del frontend su Netlify
+      - key: ENABLE_SCHEDULER
+        value: "false" # sostituito dal Cron Job qui sotto
+      - key: NIGHTLY_JOB_SECRET
+        sync: false # stesso valore nel Cron Job sotto
+      - key: REDIS_URL
+        sync: false # facoltativa: l'app funziona anche senza (solo senza cache)
+
+  - type: cron
+    name: wikiscout-nightly-trigger
+    runtime: image
+    image:
+      url: docker.io/curlimages/curl:latest
+    plan: free
+    schedule: "0 3 * * *" # ogni notte alle 3:00 UTC
+    dockerCommand: >-
+      curl -sf -X POST https://wikiscout-backend.onrender.com/internal/nightly-job
+      -H "X-Job-Secret: $NIGHTLY_JOB_SECRET"
+    envVars:
+      - key: NIGHTLY_JOB_SECRET
+        sync: false # stesso valore del servizio web sopra

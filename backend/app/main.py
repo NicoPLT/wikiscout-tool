@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes_auth import router as auth_router
+from app.api.routes_internal import router as internal_router
 from app.api.routes_players import router as players_router
 from app.api.routes_tags import router as tags_router
 from app.api.routes_watch_alerts import router as watch_alerts_router
@@ -37,6 +38,7 @@ app.include_router(auth_router)
 app.include_router(players_router)
 app.include_router(tags_router)
 app.include_router(watch_alerts_router)
+app.include_router(internal_router)
 
 
 @app.get("/api/health")

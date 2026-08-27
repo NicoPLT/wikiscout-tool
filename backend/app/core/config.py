@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     ENABLE_SCHEDULER: bool = True
     NIGHTLY_JOB_HOUR: int = 3
     NIGHTLY_JOB_MINUTE: int = 0
+    # Alternativa a ENABLE_SCHEDULER per deploy dove il processo non resta
+    # sempre acceso da solo (es. piano free di Render, che si addormenta):
+    # un Cron Job esterno richiama POST /internal/nightly-job con questo
+    # segreto come header invece di affidarsi allo scheduler interno. None
+    # = endpoint disattivato (comportamento di default invariato).
+    NIGHTLY_JOB_SECRET: str | None = None
 
     # Apify (usato per il valore di mercato Transfermarkt - non toccato)
     APIFY_TOKEN: str | None = None
