@@ -1,5 +1,8 @@
 # Blueprint Render per il backend WikiScout (piano Free).
 #
+# Alla radice del repo (non dentro backend/) perche' Render cerca
+# render.yaml qui di default in un monorepo con piu' cartelle.
+#
 # Due servizi:
 #   1. wikiscout-backend: il servizio web vero e proprio, stesso Dockerfile
 #      gia' usato su Railway (immagine ufficiale Playwright), nessuna
@@ -9,7 +12,7 @@
 #      volta al giorno — sostituisce lo scheduler interno (APScheduler),
 #      che su un piano free non si sveglierebbe da solo perche' il
 #      servizio web si addormenta dopo inattivita' (vedi
-#      app/api/routes_internal.py per i dettagli).
+#      backend/app/api/routes_internal.py per i dettagli).
 #
 # Uso: Render Dashboard -> New -> Blueprint -> punta a questo repo. I
 # valori con "sync: false" vanno inseriti a mano nel dashboard Render
@@ -24,8 +27,8 @@ services:
   - type: web
     name: wikiscout-backend
     runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     plan: free
     healthCheckPath: /api/health
     envVars:
