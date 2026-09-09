@@ -18,10 +18,9 @@
 # valori con "sync: false" vanno inseriti a mano nel dashboard Render
 # (non nel repo): sono segreti o dipendono dall'ambiente.
 #
-# IMPORTANTE dopo il primo deploy: il Cron Job qui sotto chiama
-# https://wikiscout-backend.onrender.com — sostituiscilo con l'URL vero
-# assegnato da Render al servizio web (visibile nel suo dashboard), che
-# potrebbe differire se il nome "wikiscout-backend" risulta gia' in uso.
+# URL reale assegnato da Render al servizio web: wikiscout-tool.onrender.com
+# (il nome del servizio, wikiscout-backend, era gia' in uso da un altro
+# account su onrender.com, quindi Render ha assegnato il nome del repo).
 
 services:
   - type: web
@@ -57,7 +56,7 @@ services:
     plan: free
     schedule: "0 3 * * *" # ogni notte alle 3:00 UTC
     dockerCommand: >-
-      curl -sf -X POST https://wikiscout-backend.onrender.com/internal/nightly-job
+      curl -sf -X POST https://wikiscout-tool.onrender.com/internal/nightly-job
       -H "X-Job-Secret: $NIGHTLY_JOB_SECRET"
     envVars:
       - key: NIGHTLY_JOB_SECRET
