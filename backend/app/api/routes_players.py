@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -22,12 +23,21 @@ from app.services import player_service
 router = APIRouter(prefix="/api", tags=["players"])
 
 
+@router.get("/watchlist/export")
+def export_watchlist(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.services.backup_service import export_data
+    return JSONResponse(export_data(db), headers={
+        "Content-Disposition": 'attachment; filename="wikiscout-export.json"',
+        "Cache-Control": "no-store",
+    })
+
+
 @router.get("/watchlist", response_model=list[PlayerRow])
 def get_watchlist(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[PlayerRow]:
-    return player_service.get_watchlist_rows(db, current_user.id)
+    return player_service.get_watchlist_rows(db, current_user.id, use_cache=False)
 
 
 @router.get("/watchlist/summary", response_model=WatchlistSummary)

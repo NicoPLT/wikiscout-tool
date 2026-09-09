@@ -35,6 +35,8 @@ export interface PlayerRow {
   tag: Tag | null
 
   last_synced_at: string | null
+  sync_status: 'pending' | 'success' | 'partial' | 'error'
+  sync_attempted_at: string | null
 }
 
 export interface MatchStatLine {
@@ -57,6 +59,12 @@ export interface MarketValuePoint {
 }
 
 export interface PlayerDetail extends PlayerRow {
+  sync_state: Record<string, {
+    last_attempt_at?: string
+    last_success_at?: string
+    next_attempt_at?: string
+    error?: string | null
+  }>
   starts_season: number
   yellow_cards_season: number
   red_cards_season: number

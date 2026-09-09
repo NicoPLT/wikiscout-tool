@@ -4,6 +4,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  // Allow Render's cold start, but do not leave requests pending forever.
+  timeout: 120_000,
 })
 
 const TOKEN_KEY = 'wikiscout_token'

@@ -11,6 +11,7 @@ vanno mai toccati passando da A a B.
 import logging
 import re
 import unicodedata
+from urllib.parse import urlparse
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select
@@ -84,6 +85,8 @@ def _player_to_row(player: Player, watchlist_entry: Watchlist | None) -> PlayerR
             else None
         ),
         last_synced_at=player.last_synced_at,
+        sync_status=player.sync_status or "pending",
+        sync_attempted_at=player.sync_attempted_at,
     )
 
 
@@ -101,19 +104,10 @@ def get_watchlist_rows(db: Session, user_id: int, use_cache: bool = True) -> lis
     )
     entries = db.execute(stmt).scalars().all()
 
-    # Risolta qui (non solo aprendo la singola scheda) cosi' l'eta' compare
-    # in anteprima per tutta la watchlist in dashboard, non solo per i
-    # giocatori gia' visitati singolarmente. Costo contenuto: una sola volta
-    # per giocatore (persistita), e comunque protetto dalla cache qui sopra.
-    changed = False
-    for entry in entries:
-        changed = resolve_date_of_birth(entry.player) or changed
-    if changed:
-        db.commit()
-
     rows = [_player_to_row(entry.player, entry) for entry in entries]
 
-    cache_set(cache_key, [row.model_dump() for row in rows])
+    if use_cache:
+        cache_set(cache_key, [row.model_dump() for row in rows])
     return rows
 
 
@@ -125,23 +119,6 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
     player = db.get(Player, player_id)
     if player is None:
         return None
-
-    # Risolti qui (non solo a import/job notturno) cosi' compaiono alla
-    # prima apertura della scheda invece di aspettare il giro notturno,
-    # per i giocatori importati prima che questi campi esistessero (fotmob/
-    # data di nascita) o il cui collegamento Sofascore e' stato
-    # volutamente rimandato dall'import per non bloccare il "+ Aggiungi"
-    # (vedi resolve_sofascore_link).
-    changed = resolve_fotmob_link(player)
-    changed = resolve_date_of_birth(player) or changed
-    changed = resolve_sofascore_link(db, player) or changed
-    if changed:
-        db.commit()
-        # La dashboard legge la watchlist da cache (fino a CACHE_TTL_SECONDS):
-        # senza invalidarla qui, un campo risolto al volo aprendo la scheda
-        # (eta', link Fotmob) non si vedrebbe in dashboard finche' la cache
-        # non scade da sola.
-        invalidate_watchlist_cache(user_id)
 
     watchlist_entry = db.execute(
         select(Watchlist).where(Watchlist.user_id == user_id, Watchlist.player_id == player_id)
@@ -165,6 +142,7 @@ def get_player_detail(db: Session, user_id: int, player_id: int) -> PlayerDetail
         stats_updated_at=player.stats_updated_at,
         market_value_updated_at=player.market_value_updated_at,
         rating_updated_at=player.rating_updated_at,
+        sync_state=player.sync_state or {},
         recent_matches=[MatchStatLine.model_validate(m) for m in recent_matches],
         market_value_history=[MarketValuePoint.model_validate(m) for m in market_history],
     )
@@ -250,16 +228,7 @@ def import_player_from_transfermarkt(
     market_value_eur: float | None,
     photo_url: str | None,
 ) -> Player | None:
-    """Crea (se non esiste) un giocatore reale a partire dai dati del
-    candidato Transfermarkt gia' ottenuti in fase di ricerca (Transfermarkt
-    si cerca per NOME, non per id: non ha senso ri-cercare l'id come se
-    fosse un nome, per questo il chiamante passa i dati gia' noti invece di
-    un semplice id). Prova poi a risolvere il mapping Sofascore per
-    nome+squadra e a popolare statistiche stagionali/ultime partite reali.
-    Se il mapping Sofascore fallisce o e' ambiguo, il giocatore viene
-    comunque aggiunto (con dati Transfermarkt) e lo scout potra' collegare
-    Sofascore manualmente in un secondo momento.
-    """
+    """Save search metadata immediately; the persistent worker enriches it later."""
     existing = db.execute(
         select(Player).where(Player.transfermarkt_id == transfermarkt_id)
     ).scalar_one_or_none()
@@ -289,25 +258,13 @@ def import_player_from_transfermarkt(
         transfermarkt_id=transfermarkt_id,
         market_value_eur=market_value_eur,
         market_value_updated_at=datetime.now(timezone.utc) if market_value_eur is not None else None,
-        last_synced_at=datetime.now(timezone.utc),
+        last_synced_at=None,
+        sync_status="pending",
     )
     db.add(player)
     db.flush()
 
-    _apply_transfermarkt_performance(db, player)
-    _backfill_market_value_history(db, player)
-    resolve_fotmob_link(player)
-    resolve_date_of_birth(player)
-
-    # Il collegamento Sofascore (ricerca nome + fetch statistiche via
-    # browser Playwright) e' di gran lunga il passo piu' lento dell'import
-    # (misurato dal vivo: da solo ~25-30s, piu' del resto messo insieme) —
-    # farlo qui bloccava il click "+ Aggiungi" per oltre un minuto,
-    # abbastanza da sembrare non funzionante. Si risolve invece on-demand
-    # alla prima apertura della scheda giocatore (vedi get_player_detail,
-    # stesso pattern gia' usato per fotmob_id/date_of_birth) o dal job
-    # notturno, cosi' l'aggiunta in watchlist resta rapida.
-
+    # Import is a database-only operation. The scheduled worker enriches it.
     db.commit()
     db.refresh(player)
 
@@ -331,7 +288,10 @@ def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
 
     updated = False
 
-    season_summary = transfermarkt_performance.get_season_summary(player.transfermarkt_id, club_id)
+    options = transfermarkt_performance.list_season_options(player.transfermarkt_id, club_id)
+    if options:
+        player.seasons_data = [option.model_dump(mode="json") for option in options]
+    season_summary = options[0] if options else None
     if season_summary is not None:
         player.league = season_summary.competition_name or player.league
         player.season_label = season_summary.season_label
@@ -347,35 +307,25 @@ def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
 
     recent_matches = transfermarkt_performance.get_recent_matches(player.transfermarkt_id, limit=5)
     if recent_matches:
-        existing_refs = {
-            ref
-            for ref in db.execute(
-                select(PlayerStatsMatch.external_ref).where(PlayerStatsMatch.player_id == player.id)
-            ).scalars()
-            if ref
-        }
-        new_rows = [
-            PlayerStatsMatch(
-                player_id=player.id,
-                match_date=m.match_date,
-                competition=m.competition_name or m.competition_id,
-                opponent=m.opponent_name or m.opponent_id or "N/D",
-                is_home=m.is_home,
-                minutes_played=m.minutes_played,
-                goals=m.goals,
-                assists=m.assists,
-                rating=None,
-                xg=None,
-                xa=None,
-                source="transfermarkt-leistungsdaten",
-                external_ref=m.external_ref,
-            )
-            for m in recent_matches
-            if m.external_ref not in existing_refs
-        ]
-        if new_rows:
-            db.add_all(new_rows)
-            db.flush()
+        existing = {row.external_ref: row for row in db.execute(
+            select(PlayerStatsMatch).where(PlayerStatsMatch.player_id == player.id,
+                PlayerStatsMatch.source == "transfermarkt-leistungsdaten")
+        ).scalars()}
+        for m in recent_matches:
+            row = existing.get(m.external_ref)
+            if row is None:
+                row = PlayerStatsMatch(player_id=player.id, external_ref=m.external_ref,
+                    source="transfermarkt-leistungsdaten")
+                db.add(row)
+                existing[m.external_ref] = row
+            row.match_date = m.match_date
+            row.competition = m.competition_name or m.competition_id
+            row.opponent = m.opponent_name or m.opponent_id or "N/D"
+            row.is_home = m.is_home
+            row.minutes_played = m.minutes_played
+            row.goals = m.goals
+            row.assists = m.assists
+        db.flush()
 
         player.goals_last5 = sum(m.goals for m in recent_matches[:5])
         player.assists_last5 = sum(m.assists for m in recent_matches[:5])
@@ -386,11 +336,8 @@ def _apply_transfermarkt_performance(db: Session, player: Player) -> bool:
 
 def _backfill_market_value_history(db: Session, player: Player) -> bool:
     """Inserisce nello storico i punti di valore di mercato REALI (ultimi ~2
-    anni) recuperati da Transfermarkt, cosi' il grafico di trend nella
-    scheda giocatore mostra da subito un andamento vero invece di un solo
-    punto (quello dell'import) che si arricchirebbe lentamente nel tempo coi
-    soli snapshot settimanali del job notturno. Idempotente: salta le date
-    gia' presenti, quindi rilanciarla (es. ogni notte) non duplica nulla.
+    anni) recuperati da Transfermarkt. Aggiorna anche valore e variazione
+    nella dashboard, senza Apify. Aggiorna le date esistenti senza duplicarle.
     """
     if not player.transfermarkt_id:
         return False
@@ -399,26 +346,24 @@ def _backfill_market_value_history(db: Session, player: Player) -> bool:
     if not points:
         return False
 
-    existing_dates = set(
-        db.execute(
-            select(PlayerMarketValueHistory.recorded_at).where(PlayerMarketValueHistory.player_id == player.id)
-        ).scalars()
-    )
-
-    new_rows = [
-        PlayerMarketValueHistory(
-            player_id=player.id,
-            value_eur=point.value_eur,
-            recorded_at=point.recorded_at,
-            source="transfermarkt-history",
-        )
-        for point in points
-        if point.recorded_at not in existing_dates
-    ]
-    if not new_rows:
-        return False
-
-    db.add_all(new_rows)
+    existing = {row.recorded_at: row for row in db.execute(
+        select(PlayerMarketValueHistory).where(PlayerMarketValueHistory.player_id == player.id)
+    ).scalars()}
+    for point in points:
+        row = existing.get(point.recorded_at)
+        if row is None:
+            row = PlayerMarketValueHistory(player_id=player.id, recorded_at=point.recorded_at,
+                source="transfermarkt-history")
+            db.add(row)
+            existing[point.recorded_at] = row
+        row.value_eur = point.value_eur
+    latest = points[-1]
+    previous = points[-2].value_eur if len(points) > 1 else None
+    player.market_value_eur = latest.value_eur
+    player.market_value_change_eur = latest.value_eur - previous if previous is not None else None
+    player.market_value_change_pct = ((latest.value_eur - previous) / previous * 100) if previous else None
+    # Date of the actual valuation, not the date we checked it.
+    player.market_value_updated_at = datetime.combine(latest.recorded_at, datetime.min.time(), tzinfo=timezone.utc)
     db.flush()
     return True
 
@@ -451,13 +396,7 @@ def resolve_fotmob_link(player: Player) -> bool:
 
 
 def resolve_sofascore_link(db: Session, player: Player) -> bool:
-    """Come resolve_fotmob_link/resolve_date_of_birth: non fa nulla se gia'
-    collegato. A differenza degli altri due, apre una sessione browser
-    Playwright (e' di gran lunga il passo piu' lento tra tutti i
-    collegamenti automatici, ~25-30s misurati dal vivo) — per questo NON
-    viene piu' chiamato nel percorso sincrono dell'import (vedi
-    import_player_from_transfermarkt), solo qui on-demand alla prima
-    apertura della scheda, o dal job notturno."""
+    """Explicit enrichment helper; never called by import or read endpoints."""
     if player.sofascore_id:
         return False
     with sofascore.SofascoreSession() as session:
@@ -476,23 +415,18 @@ def get_player_season_options(db: Session, player_id: int) -> list["transfermark
     if player is None or not player.transfermarkt_id:
         return []
 
-    club_id = transfermarkt_performance.get_current_club_id(player.transfermarkt_id)
-    if club_id is None:
-        return []
-
-    return transfermarkt_performance.list_season_options(player.transfermarkt_id, club_id, max_seasons=6)
+    return [transfermarkt_performance.SeasonSummary.model_validate(item) for item in (player.seasons_data or [])]
 
 
 def get_player_transfer_history(db: Session, player_id: int) -> list["transfermarkt_performance.TransferRecord"]:
     """Storico trasferimenti di carriera (piu' recente prima), per la
-    scheda giocatore. Sola lettura, dato live da Transfermarkt: non viene
-    persistito sul giocatore.
+    scheda giocatore. Legge lo snapshot salvato dal worker gratuito.
     """
     player = db.get(Player, player_id)
     if player is None or not player.transfermarkt_id:
         return []
 
-    return transfermarkt_performance.get_transfer_history(player.transfermarkt_id)
+    return [transfermarkt_performance.TransferRecord.model_validate(item) for item in (player.transfers_data or [])]
 
 
 def link_sofascore_profile(db: Session, session: "sofascore.SofascoreSession", player: Player) -> bool:
@@ -579,19 +513,45 @@ def _apply_sofascore_link(db: Session, session: "sofascore.SofascoreSession", pl
     """Sofascore resta la fonte SOLO per rating/xG/xA (dati che Transfermarkt
     non ha mai pubblicato): goal/assist/presenze/minuti/campionato vengono
     ormai da Transfermarkt (vedi _apply_transfermarkt_performance)."""
-    player.sofascore_id = str(sofascore_id)
-
+    if not session.ok:
+        return False
     season_stats = sofascore.get_season_stats(session, sofascore_id)
-    if season_stats:
-        player.is_xg_covered = season_stats["xg_season"] is not None
-        if season_stats["rating_avg"] is not None:
-            player.rating_avg = season_stats["rating_avg"]
-            player.rating_updated_at = datetime.now(timezone.utc)
-        if season_stats["xg_season"] is not None:
-            player.xg_season = season_stats["xg_season"]
-        if season_stats["xa_season"] is not None:
-            player.xa_season = season_stats["xa_season"]
+    # Never replace a valid link with an ID that returned no actual statistics.
+    if not season_stats or all(season_stats.get(k) is None for k in ("rating_avg", "xg_season", "xa_season")):
+        return False
 
+    matches = list(db.execute(select(PlayerStatsMatch).where(
+        PlayerStatsMatch.player_id == player.id,
+        PlayerStatsMatch.source == "transfermarkt-leistungsdaten",
+    ).order_by(PlayerStatsMatch.match_date.desc()).limit(20)).scalars())
+    relinking = player.sofascore_id != str(sofascore_id)
+    known = {m.sofascore_ref for m in matches if m.sofascore_ref and m.rating is not None and not relinking}
+    needed = {m.match_date for m in matches if relinking or m.rating is None}
+    recent = sofascore.get_recent_matches(session, sofascore_id, limit=20,
+        known_refs=known, wanted_dates=needed) if needed else []
+    if relinking:
+        for match in matches:
+            match.sofascore_ref = None
+            match.rating = match.xg = match.xa = None
+    for item in recent:
+        # Match by date AND opponent/home-away. Never guess on an ambiguous day.
+        candidates = [m for m in matches if m.match_date == item["match_date"] and
+            _teams_match(m.opponent or "", (item.get("away_team") if m.is_home else item.get("home_team")) or "")]
+        if len(candidates) != 1:
+            continue
+        match = candidates[0]
+        match.sofascore_ref = item["external_ref"]
+        for field in ("rating", "xg", "xa"):
+            if item.get(field) is not None:
+                setattr(match, field, item[field])
+
+    player.sofascore_id = str(sofascore_id)
+    # Replace available-season values, including null for uncovered metrics.
+    player.rating_avg = season_stats.get("rating_avg")
+    player.xg_season = season_stats.get("xg_season")
+    player.xa_season = season_stats.get("xa_season")
+    player.is_xg_covered = player.xg_season is not None
+    player.rating_updated_at = datetime.now(timezone.utc)
     return True
 
 
@@ -604,10 +564,19 @@ def link_sofascore_manual(db: Session, user_id: int, player_id: int, sofascore_u
     if player is None:
         return None
 
-    digits = re.search(r"(\d+)\D*$", sofascore_url_or_id.strip())
+    value = sofascore_url_or_id.strip()
+    if value.isascii() and value.isdigit():
+        digits = re.fullmatch(r"(\d+)", value)
+    else:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.hostname not in {"www.sofascore.com", "sofascore.com"}:
+            return None
+        digits = re.fullmatch(r"/(?:football/)?player/[^/]+/(\d+)/?", parsed.path)
     if not digits:
         return None
     sofascore_id = int(digits.group(1))
+    if sofascore_id <= 0:
+        return None
 
     with sofascore.SofascoreSession() as session:
         ok = _apply_sofascore_link(db, session, player, sofascore_id)
@@ -699,24 +668,17 @@ def get_watchlist_summary(db: Session, user_id: int) -> WatchlistSummary:
     avg_rating = sum(ratings) / len(ratings) if ratings else None
     total_market_value = sum(float(p.market_value_eur or 0) for p in players)
 
-    # Trend aggregato: allinea gli storici per posizione (i punti del seed sono
-    # generati con la stessa cadenza per ogni giocatore); ogni indice diventa
-    # un punto del grafico sommando i valori di tutti i giocatori a quell'indice.
     histories = [sorted(p.market_value_history, key=lambda h: h.recorded_at) for p in players]
-    max_len = max((len(h) for h in histories), default=0)
+    dates = sorted({point.recorded_at for history in histories for point in history})
     trend: list[MarketValueTrendPoint] = []
-    for i in range(max_len):
-        total = 0.0
-        latest_date = None
-        for h in histories:
-            if i < len(h):
-                total += float(h[i].value_eur)
-                if latest_date is None or h[i].recorded_at > latest_date:
-                    latest_date = h[i].recorded_at
-            elif h:
-                total += float(h[-1].value_eur)
-        if latest_date is not None:
-            trend.append(MarketValueTrendPoint(recorded_at=latest_date, total_value_eur=round(total, 2)))
+    positions = [0] * len(histories)
+    values = [0.0] * len(histories)
+    for day in dates:
+        for i, history in enumerate(histories):
+            while positions[i] < len(history) and history[positions[i]].recorded_at <= day:
+                values[i] = float(history[positions[i]].value_eur)
+                positions[i] += 1
+        trend.append(MarketValueTrendPoint(recorded_at=day, total_value_eur=round(sum(values), 2)))
 
     recent_updates: list[RecentUpdateItem] = []
     for p in players:

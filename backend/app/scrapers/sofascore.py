@@ -36,6 +36,7 @@ from playwright.sync_api import sync_playwright
 
 from app.core.config import get_settings
 from app.scrapers.rate_limit import register_call
+from app.scrapers.errors import SourceUnavailable, strict_scraping
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -123,17 +124,27 @@ class SofascoreSession:
         try:
             result = self._page.evaluate(
                 """async (url) => {
-                    const res = await fetch(url);
-                    return { status: res.status, body: await res.text() };
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 20000);
+                    try {
+                        const res = await fetch(url, { signal: controller.signal });
+                        return { status: res.status, body: await res.text() };
+                    } finally { clearTimeout(timer); }
                 }""",
                 url,
             )
         except Exception as exc:
             logger.error("Errore Sofascore fetch %s: %s", path, exc)
+            if strict_scraping.get():
+                raise SourceUnavailable("Sofascore non raggiungibile") from exc
             return None
 
         if result.get("status") != 200:
             logger.warning("Sofascore ha risposto %s per %s", result.get("status"), path)
+            if result.get("status") == 404:
+                return None  # no player/match statistics, not a provider outage
+            if strict_scraping.get():
+                raise SourceUnavailable(f"Sofascore HTTP {result.get('status')}")
             return None
 
         try:
@@ -142,6 +153,8 @@ class SofascoreSession:
             return json.loads(result["body"])
         except (ValueError, KeyError, TypeError):
             logger.warning("Sofascore: corpo non-JSON per %s", path)
+            if strict_scraping.get():
+                raise SourceUnavailable("Risposta Sofascore non valida")
             return None
 
 
@@ -271,7 +284,8 @@ def get_season_stats(session: SofascoreSession, sofascore_id: int) -> dict | Non
     }
 
 
-def get_recent_matches(session: SofascoreSession, sofascore_id: int, limit: int = 5) -> list[dict]:
+def get_recent_matches(session: SofascoreSession, sofascore_id: int, limit: int = 5,
+                       known_refs: set[str] | None = None, wanted_dates: set | None = None) -> list[dict]:
     """Ultime `limit` partite reali giocate, con rating/xG/xA per partita
     quando disponibili (xG/xA restano None per i campionati che Sofascore
     non copre: e' un dato mancante legittimo, non un errore)."""
@@ -294,12 +308,19 @@ def get_recent_matches(session: SofascoreSession, sofascore_id: int, limit: int 
         event_id = event.get("id")
         if event_id is None:
             continue
+        if str(event_id) in (known_refs or set()):
+            continue
+        event_date = datetime.fromtimestamp(event.get("startTimestamp") or 0, tz=timezone.utc).date()
+        if wanted_dates is not None and event_date not in wanted_dates:
+            continue
 
         stats = session.fetch_json(f"/api/v1/event/{event_id}/player/{sofascore_id}/statistics")
         if not stats:
             continue
 
         s = stats.get("statistics", {}) or {}
+        if not s or (s.get("minutesPlayed") or 0) <= 0:
+            continue
         home_team = (event.get("homeTeam") or {}).get("name")
         away_team = (event.get("awayTeam") or {}).get("name")
         player_team = (stats.get("team") or {}).get("name")
@@ -318,6 +339,8 @@ def get_recent_matches(session: SofascoreSession, sofascore_id: int, limit: int 
                 "match_date": match_date,
                 "competition": (event.get("tournament") or {}).get("name") or "N/D",
                 "opponent": away_team if is_home else home_team,
+                "home_team": home_team,
+                "away_team": away_team,
                 "is_home": is_home,
                 "minutes_played": s.get("minutesPlayed") or 0,
                 "goals": s.get("goals") or 0,

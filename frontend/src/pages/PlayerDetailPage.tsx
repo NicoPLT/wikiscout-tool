@@ -8,6 +8,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { RatingBadge } from '../components/ui/RatingBadge'
 import { MarketValueTrend } from '../components/charts/MarketValueTrend'
 import { TagSelect } from '../components/tags/TagSelect'
+import { SyncStatus } from '../components/player/SyncStatus'
 import { SeasonStatsCard } from '../components/player/SeasonStatsCard'
 import {
   fetchPlayerDetail,
@@ -64,6 +65,10 @@ export function PlayerDetailPage() {
   const { playerId } = useParams<{ playerId: string }>()
   const navigate = useNavigate()
   const [player, setPlayer] = useState<PlayerDetail | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
+  const [sectionError, setSectionError] = useState<string | null>(null)
   const [notes, setNotes] = useState('')
   const [isEditingNotes, setIsEditingNotes] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -80,34 +85,53 @@ export function PlayerDetailPage() {
 
   useEffect(() => {
     if (!playerId) return
+    let active = true
     setPlayer(null)
+    setLoadError(null)
+    setSectionError(null)
+    setActionError(null)
+    setSeasonOptions([])
+    setSelectedSeasonId(null)
+    setTransfers([])
+    setTags([])
     fetchPlayerDetail(Number(playerId)).then((data) => {
+      if (!active) return
       setPlayer(data)
       setNotes(data.watchlist_notes ?? '')
+    }).catch(() => {
+      if (active) setLoadError('Scheda non disponibile. Il giocatore potrebbe essere stato rimosso oppure il servizio non risponde.')
     })
-    fetchTags().then(setTags)
+    fetchTags().then((data) => { if (active) setTags(data) })
+      .catch(() => { if (active) setSectionError('Tag non disponibili. Ricarica la scheda per riprovare.') })
     setIsLoadingSeasons(true)
     fetchPlayerSeasons(Number(playerId))
       .then((options) => {
+        if (!active) return
         setSeasonOptions(options)
-        if (options.length > 0) setSelectedSeasonId(options[0].season_id)
+        setSelectedSeasonId(options[0]?.season_id ?? null)
       })
-      .finally(() => setIsLoadingSeasons(false))
+      .catch(() => { if (active) setSectionError('Storico stagioni non disponibile. Ricarica per riprovare.') })
+      .finally(() => { if (active) setIsLoadingSeasons(false) })
     setIsLoadingTransfers(true)
     fetchPlayerTransfers(Number(playerId))
-      .then(setTransfers)
-      .finally(() => setIsLoadingTransfers(false))
-  }, [playerId])
+      .then((data) => { if (active) setTransfers(data) })
+      .catch(() => { if (active) setSectionError('Trasferimenti non disponibili. Ricarica per riprovare.') })
+      .finally(() => { if (active) setIsLoadingTransfers(false) })
+    return () => { active = false }
+  }, [playerId, reload])
 
   async function handleSaveNotes() {
     if (!player) return
     setIsSaving(true)
+    setActionError(null)
     try {
       const updated = await updateWatchlistEntry(player.id, notes)
       setPlayer(updated)
       setSaved(true)
       setIsEditingNotes(false)
       setTimeout(() => setSaved(false), 2000)
+    } catch {
+      setActionError('Salvataggio non riuscito. Le note inserite sono ancora qui: riprova.')
     } finally {
       setIsSaving(false)
     }
@@ -115,7 +139,8 @@ export function PlayerDetailPage() {
 
   async function handleAssignTag(tagId: number | null) {
     if (!player) return
-    await assignPlayerTag(player.id, tagId)
+    try { await assignPlayerTag(player.id, tagId) }
+    catch { setActionError('Tag non salvato. Riprova.'); return }
     const assigned = tagId === null ? null : tags.find((t) => t.id === tagId) ?? null
     setPlayer({ ...player, tag: assigned })
   }
@@ -134,6 +159,13 @@ export function PlayerDetailPage() {
       setIsLinkingSofascore(false)
     }
   }
+
+  if (loadError) return <AppLayout>
+    <Card><p role="alert" className="mb-4 text-sm text-danger">{loadError}</p>
+      <Button onClick={() => setReload((n) => n + 1)}>Riprova</Button>
+      <Button variant="secondary" onClick={() => navigate('/')}>Torna alla watchlist</Button>
+    </Card>
+  </AppLayout>
 
   if (!player) {
     return (
@@ -164,6 +196,10 @@ export function PlayerDetailPage() {
   return (
     <AppLayout>
       <div className="flex flex-col gap-6">
+        {(actionError || sectionError) && <Card><p role="alert" className="text-sm text-danger">{actionError || sectionError}</p>
+          {sectionError && <Button variant="secondary" onClick={() => setReload((n) => n + 1)}>Ricarica scheda</Button>}
+        </Card>}
+        <SyncStatus player={player} />
         <button
           onClick={() => navigate(-1)}
           className="flex w-fit items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary"
@@ -325,13 +361,10 @@ export function PlayerDetailPage() {
           </Card>
         </div>
 
-        {!player.sofascore_id && (
-          <Card title="Collega profilo Sofascore">
+        <Card title={player.sofascore_id ? "Correggi profilo Sofascore" : "Collega profilo Sofascore"}>
             <p className="text-sm text-text-secondary">
-              Non abbiamo trovato con certezza il profilo Sofascore di questo giocatore (nome ambiguo o
-              omonimia), quindi rating/xG/xA/statistiche restano N/D. Incolla qui il link del profilo
-              corretto (es. https://www.sofascore.com/player/erling-haaland/839956) per collegarlo
-              manualmente.
+              Puoi indicare il profilo corretto quando il collegamento automatico manca o rimanda
+              a un omonimo. Incolla il link Sofascore o il suo ID: lo verifichiamo prima di salvarlo.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <input
@@ -345,8 +378,7 @@ export function PlayerDetailPage() {
               </Button>
             </div>
             {sofascoreLinkError && <p className="mt-2 text-xs text-danger">{sofascoreLinkError}</p>}
-          </Card>
-        )}
+        </Card>
 
         <Card title="Storico partite">
           <div className="overflow-x-auto">

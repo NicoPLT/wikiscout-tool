@@ -1,2 +1,6 @@
 # Stato locale di Claude Code (non va versionato)
 .claude/
+
+# Export e backup personali
+backups/
+*.backup.enc

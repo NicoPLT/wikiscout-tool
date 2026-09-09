@@ -48,6 +48,8 @@ class PlayerRow(BaseModel):
     tag: TagOut | None = None
 
     last_synced_at: datetime | None
+    sync_status: str = "pending"
+    sync_attempted_at: datetime | None = None
 
 
 class MatchStatLine(BaseModel):
@@ -74,6 +76,7 @@ class MarketValuePoint(BaseModel):
 
 
 class PlayerDetail(PlayerRow):
+    sync_state: dict = {}
     # Solo per la scheda giocatore singola (non in dashboard): titolarita' e
     # cartellini della stagione corrente/piu' recente con dati reali.
     starts_season: int = 0

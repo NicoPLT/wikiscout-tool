@@ -1,207 +1,67 @@
 # WikiScout Tool
 
-Applicazione interna per scout di calcio: watchlist personale di giocatori con
-dashboard in stile foglio Excel (AG Grid), aggiornata una volta al giorno da
-un job notturno (non live).
+Watchlist personale di calcio per un solo scout. Frontend React/Vite su Netlify,
+API FastAPI su Render Free, database PostgreSQL su Neon Free. Gli aggiornamenti
+sono eseguiti direttamente da GitHub Actions: non richiedono Cron Render, Apify,
+API-Football, Redis o altri servizi a pagamento.
 
-Monorepo:
+## Comportamento
 
-```
-wikiscout-tool/
-  frontend/   React 18 + Vite + TypeScript + AG Grid + Tailwind
-  backend/    FastAPI + PostgreSQL + Redis + APScheduler
-  docker-compose.yml   Postgres + Redis per lo sviluppo locale
-```
+- La ricerca interroga Transfermarkt; aggiunta, dashboard e schede usano il database.
+- Un nuovo giocatore compare subito come **In attesa**. Le statistiche mancanti
+  vengono recuperate al prossimo giro notturno o avviando manualmente il workflow.
+- Statistiche e rating: non prima di 20 ore dall'ultimo successo. Valori di
+  mercato, anagrafica/link e trasferimenti: settimanalmente.
+- Lo storico stagioni e trasferimenti e' persistito. La scheda non apre browser.
+- Ogni fonte salva ultimo tentativo, ultimo successo, errore e prossimo tentativo.
+  Un fallimento conserva i dati precedenti e viene ritentato non prima di 6 ore.
+- Le modifiche sono salvate per giocatore/fonte: un'interruzione non annulla tutto
+  il giro. I giocatori con tentativi piu' vecchi vengono elaborati prima.
+- Il worker si ferma dopo circa 35 minuti (piu' la richiesta in corso); il workflow
+  ha un limite assoluto di 45 minuti. Un primo caricamento di 200 profili potrebbe
+  richiedere piu' giri. Non esiste una garanzia di copertura delle fonti non ufficiali.
+- La tabella AG Grid viene scaricata soltanto su desktop. Il mobile usa le card.
+- **Esporta dati** scarica un JSON con giocatori, note, tag, statistiche e alert.
+  L'esportazione non contiene hash di login o segreti. Conservarla privatamente.
 
-## Fase A vs Fase B
+## Attivazione online
 
-Il progetto e' pensato per essere usabile subito, senza chiavi API, ma ora
-supporta anche dati reali:
+Seguire [la guida operativa gratuita](docs/free-deployment.md). Il workflow e'
+intenzionalmente disabilitato finche' non sono configurati i segreti e la variabile
+`WIKISCOUT_SYNC_ENABLED=true`. Non creare il Cron Render descritto nel vecchio handoff.
 
-- **Fase A (seed mock)**: `backend/scripts/seed_mock_data.py` popola il DB con
-  13 giocatori di fantasia (squadre/campionati reali) per validare la UI
-  senza alcuna chiave API. Restano utilizzabili finche' non li rimuovi dalla
-  watchlist.
-- **Fase B (attiva)**: con `API_FOOTBALL_KEY` impostata, l'autocompletamento
-  in header cerca giocatori REALI (nome + squadra) su tutto il database
-  API-Football, non solo tra quelli gia' importati; aggiungerli alla
-  watchlist li importa con statistiche stagionali e ultime 5 partite reali.
-  Con `APIFY_TOKEN` impostata, il job notturno aggiorna anche valore di
-  mercato (Transfermarkt), rating (Sofascore) e xG/xA (Understat) reali —
-  vedi [dove ottenere le chiavi](#fase-b-chiavi-api-esterne-attiva) piu' sotto.
+## Sviluppo locale
 
-I 13 giocatori del seed mock hanno un `api_football_id` fittizio
-(`mock-af-N`): il job notturno li riconosce e li salta senza errori, ma non
-verranno mai aggiornati con dati reali. Se vuoi una watchlist interamente
-reale, rimuovili dalla dashboard e ricercali/riaggiungili con
-l'autocompletamento.
+1. Avviare PostgreSQL con `docker compose up -d`. Redis e' facoltativo.
+2. In `backend/`, creare un ambiente Python 3.11 e installare
+   `pip install -r requirements-dev.txt`.
+3. Copiare `.env.example` in `.env`, impostare database, email, hash password,
+   chiave JWT e CORS. Generare l'hash con `python scripts/hash_password.py "password scelta"`.
+4. Eseguire `alembic upgrade head` e `uvicorn app.main:app --reload`.
+5. In `frontend/`, eseguire `npm ci`, impostare `VITE_API_BASE_URL` e `npm run dev`.
+6. Per eseguire il worker in locale: `python -m playwright install chromium`,
+   poi `python scripts/run_nightly.py` dalla cartella backend.
 
-Il layer che legge/scrive i dati (`backend/app/services/player_service.py`)
-e' lo stesso in entrambe le fasi: cambia solo chi popola le tabelle
-(seed vs. job di scraping), non come la dashboard le legge.
+`ENABLE_SCHEDULER=false` e' il default. Abilitarlo solo per un processo locale che
+resta acceso. Il vecchio `POST /internal/nightly-job` non avvia piu' thread: risponde
+503 se disabilitato, 401 con segreto errato, 410 con segreto valido.
 
-## Setup locale
+## Verifiche
 
-### 1. Database e cache (Docker)
-
-```bash
-docker compose up -d
-```
-
-Avvia Postgres (porta 5432, utente/password/db `wikiscout`) e Redis (porta
-6379). Se non usi Docker, installa Postgres 16+ e Redis 7+ localmente e
-aggiorna `DATABASE_URL` / `REDIS_URL` in `backend/.env` di conseguenza.
-
-### 2. Backend
-
-```bash
+```text
 cd backend
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate    # macOS/Linux
-
-pip install -r requirements.txt
-copy .env.example .env         # Windows: copy, macOS/Linux: cp
-
-# genera l'hash della password del tuo account scout e incollalo in .env
-# come AUTH_PASSWORD_HASH
-python scripts/hash_password.py "la-tua-password"
-
-alembic upgrade head
-python scripts/seed_mock_data.py
-
-uvicorn app.main:app --reload
+python -m pytest -q
+cd ../frontend
+npm run build
+npm run lint
 ```
 
-L'API e' su `http://localhost:8000` (docs interattive su `/docs`).
+La suite copre import e letture senza rete, una watchlist di 200 giocatori,
+aggiornamenti parziali, rollback, checkpoint, limiti del worker, lock con scadenza,
+valutazioni gratuite, rating per partita, backup/ripristino e autenticazione export.
+Le prove locali usano SQLite in memoria e fonti simulate: non consumano API esterne.
+La migrazione `0008_free_sync` aggiunge colonne e una tabella, senza rimuovere dati.
 
-### 3. Frontend
-
-```bash
-cd frontend
-npm install
-copy .env.example .env.local   # o cp su macOS/Linux
-npm run dev
-```
-
-L'app e' su `http://localhost:5173`. Accedi con l'email in `AUTH_EMAIL`
-(default `scout@wikiscout.it`) e la password usata al passo precedente.
-
-## Struttura dati (Postgres)
-
-| Tabella | Contenuto |
-|---|---|
-| `players` | anagrafica + id esterni (Transfermarkt/API-Football/Sofascore/Understat) + snapshot denormalizzato per la dashboard |
-| `player_stats_matches` | statistiche partita per partita (fonte di verita' per la pagina di dettaglio) |
-| `player_market_value_history` | storico valore di mercato |
-| `watchlists` | giocatori seguiti da un utente, con note/tag |
-| `data_sources_log` | log di ogni esecuzione del job di aggiornamento |
-| `users` | account (single-user) |
-
-Migration in `backend/alembic/versions/`. Per generarne di nuove dopo aver
-modificato i modelli in `backend/app/models/`:
-
-```bash
-alembic revision --autogenerate -m "descrizione"
-alembic upgrade head
-```
-
-## Job notturno di aggiornamento
-
-`backend/app/scrapers/jobs.py` orchestra, una volta al giorno (default 03:00
-UTC, configurabile con `NIGHTLY_JOB_HOUR`/`NIGHTLY_JOB_MINUTE`), per ogni
-giocatore in watchlist:
-
-1. Statistiche recenti da API-Football (se la squadra ha giocato nelle
-   ultime 48h, aggiorna goal/assist/minuti/rating partita per partita e gli
-   aggregati stagionali)
-2. xG/xA da Understat (via Apify), solo per i campionati coperti (Top 5 europei)
-3. Valore di mercato da Transfermarkt (via Apify, refresh settimanale, non giornaliero)
-4. Rating da Sofascore (via Apify) — se non configurato/disponibile, resta
-   valido il rating reale gia' fornito da API-Football al punto 1
-
-Ogni chiamata alle API esterne e' loggata e conteggiata (`app/scrapers/rate_limit.py`)
-per non sforare i limiti giornalieri gratuiti; se manca la chiave o si e'
-vicini al limite, lo step viene saltato con un warning nei log e in
-`data_sources_log`, senza rompere il job.
-
-L'autocompletamento nella barra di ricerca (header) unisce i giocatori gia'
-nel DB con una ricerca live su API-Football (`GET /api/players/search`),
-mostrando nome e squadra attuale per ogni risultato; aggiungere un giocatore
-non ancora tracciato lo importa subito con dati reali (stagione corrente +
-ultime 5 partite) tramite `POST /api/watchlist/import`.
-
-## Fase B: chiavi API esterne (attiva)
-
-Finche' i campi restano vuoti in `.env`, l'app funziona comunque con i dati
-del seed mock. Con le chiavi impostate, l'app usa dati reali.
-
-- **API-Football**: ricerca giocatori, statistiche partite/goal/assist/minuti/rating.
-  Registrati su https://www.api-football.com/ (piano gratuito disponibile,
-  anche via RapidAPI) e incolla la chiave in `API_FOOTBALL_KEY`. Il piano
-  gratuito ha un limite di 100 richieste/giorno (`API_FOOTBALL_DAILY_LIMIT`):
-  la ricerca giocatori e' messa in cache 6h per non consumarlo con
-  l'autocompletamento.
-- **Apify** (usato per gli scraper mirati di Transfermarkt/Understat/Sofascore):
-  registrati su https://apify.com/, crea un token API personale e incollalo
-  in `APIFY_TOKEN`. Gli actor pubblici gia' collegati nel codice:
-  - Transfermarkt (valore di mercato): [`automation-lab/transfermarkt-scraper`](https://apify.com/automation-lab/transfermarkt-scraper)
-    — cerca per nome giocatore, nessun ID Transfermarkt richiesto in anticipo.
-  - Understat (xG/xA): [`parseforge/understat-xg-scraper`](https://apify.com/parseforge/understat-xg-scraper)
-    — una chiamata per campionato/stagione (cache 24h) copre tutti i giocatori di quel campionato.
-  - Sofascore (rating): [`gio21/sofascore-scraper`](https://apify.com/gio21/sofascore-scraper)
-    (risoluzione profilo) + [`azzouzana/sofascore-scraper-pro`](https://apify.com/azzouzana/sofascore-scraper-pro)
-    (scraping pagina profilo). **Nota**: la struttura esatta dell'output di
-    quest'ultimo actor per il rating non e' pubblicamente documentata nei
-    dettagli — `app/scrapers/sofascore.py::_extract_rating_best_effort`
-    prova diversi percorsi plausibili e logga le chiavi ricevute se nessuno
-    corrisponde, cosi' e' rapido aggiustarlo dopo una prima run reale. Nel
-    frattempo il rating resta comunque popolato con dati reali presi da
-    API-Football.
-  Ogni chiamata Apify consuma crediti del tuo account (non c'e' un limite
-  giornaliero fisso come per API-Football): monitora l'uso dalla dashboard
-  Apify.
-
-## Deploy
-
-Split su due provider: il backend ha bisogno di un processo persistente
-(scheduler notturno) + Postgres + Redis, cosa che Netlify/Vercel da soli non
-offrono bene; il frontend statico invece va benissimo su Netlify.
-
-### Backend + DB + Redis → Railway
-
-1. Crea un nuovo progetto Railway, aggiungi i plugin **PostgreSQL** e **Redis**
-   (Railway genera automaticamente `DATABASE_URL`/`REDIS_URL` come variabili,
-   ma il codice si aspetta i nomi usati in `.env.example`: mappa/rinomina le
-   variabili del servizio backend di conseguenza, es.
-   `DATABASE_URL=${{Postgres.DATABASE_URL}}` sostituendo il driver con
-   `postgresql+psycopg2://` se necessario).
-2. Collega il repository, imposta **Root Directory** su `backend/`.
-3. Railway rileva `requirements.txt` (Nixpacks) e usa il `Procfile`:
-   `web: bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"`
-   — esegue le migration e avvia sia l'API che lo scheduler (in-process via
-   APScheduler) con un solo comando.
-4. Variabili d'ambiente da impostare (vedi `backend/.env.example`):
-   `SECRET_KEY`, `AUTH_EMAIL`, `AUTH_PASSWORD_HASH`, `CORS_ORIGINS`
-   (l'URL Netlify del frontend), `ENABLE_SCHEDULER`, `NIGHTLY_JOB_HOUR`,
-   `NIGHTLY_JOB_MINUTE`, e in Fase B `API_FOOTBALL_KEY`/`APIFY_TOKEN`.
-5. Dopo il primo deploy, esegui una volta il seed mock (Fase A) da una shell
-   Railway o in locale puntando a `DATABASE_URL` di Railway:
-   `python scripts/seed_mock_data.py`.
-
-### Frontend → Netlify
-
-1. Nuovo sito Netlify collegato al repo, **Base directory** `frontend/`.
-2. `netlify.toml` gia' presente imposta build command (`npm run build`) e
-   publish directory (`dist`), oltre al redirect SPA per React Router.
-3. Imposta la variabile d'ambiente `VITE_API_BASE_URL` (Site settings >
-   Environment variables) con l'URL pubblico del servizio Railway.
-4. Deploy.
-
-## Login single-user
-
-Un solo account (email/password), pensato solo per proteggere la watchlist
-da accessi pubblici — nessuna gestione ruoli/inviti. La password si imposta
-generando un hash bcrypt con `backend/scripts/hash_password.py` e
-incollandolo in `AUTH_PASSWORD_HASH`; l'utente viene creato automaticamente
-al primo login (o dal seed, se l'hash e' gia' impostato prima di eseguirlo).
+Per il controllo browser locale: avviare il frontend e lanciare
+`python scripts/check_ui.py --base-url http://127.0.0.1:5175` dal backend.
+Le API sono intercettate e simulate; il controllo non usa il database online.

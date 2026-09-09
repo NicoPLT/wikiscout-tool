@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, DateTime, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -72,6 +72,12 @@ class Player(Base):
     market_value_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rating_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sync_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sync_status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    # Small, persistent snapshots: reading a profile never needs a scraper.
+    sync_state: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    seasons_data: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    transfers_data: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

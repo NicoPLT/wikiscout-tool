@@ -51,6 +51,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from app.core.config import get_settings
 from app.scrapers.rate_limit import register_call
+from app.scrapers.errors import SourceUnavailable, strict_scraping
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -180,6 +181,7 @@ def _get(path: str, params: dict | None = None) -> dict:
             path,
             data.get("message"),
         )
+        raise SourceUnavailable("Transfermarkt ha restituito un errore")
     return data
 
 
@@ -209,6 +211,8 @@ def get_all_games(player_id: str) -> list[dict]:
     try:
         data = _get(f"/player/{player_id}/performance-game")
     except httpx.HTTPError as exc:
+        if strict_scraping.get():
+            raise
         logger.error("Errore fetch performance-game per player_id=%s: %s", player_id, exc)
         return []
     games = data.get("data", {}).get("performance", [])
@@ -239,6 +243,8 @@ def resolve_competition_names(competition_ids: set[str]) -> dict[str, str]:
             for c in data.get("data", []):
                 _competition_name_cache[c["id"]] = c["name"]
         except httpx.HTTPError as exc:
+            if strict_scraping.get():
+                raise
             logger.error("Errore risoluzione nomi competizioni %s: %s", missing, exc)
     return {cid: _competition_name_cache[cid] for cid in competition_ids if cid in _competition_name_cache}
 
@@ -253,6 +259,8 @@ def resolve_club_names(club_ids: set[str]) -> dict[str, str]:
             for c in data.get("data", []):
                 _club_name_cache[c["id"]] = c["name"]
         except httpx.HTTPError as exc:
+            if strict_scraping.get():
+                raise
             logger.error("Errore risoluzione nomi club %s: %s", missing, exc)
     return {cid: _club_name_cache[cid] for cid in club_ids if cid in _club_name_cache}
 
@@ -272,6 +280,8 @@ def get_club_primary_competition(club_id: str) -> str | None:
     try:
         data = _get("/clubs", params={"ids[]": [club_id]})
     except httpx.HTTPError as exc:
+        if strict_scraping.get():
+            raise
         logger.error("Errore fetch club_id=%s: %s", club_id, exc)
         return None
     clubs = data.get("data", [])
@@ -496,6 +506,8 @@ def get_date_of_birth(player_id: str) -> date | None:
     try:
         data = _get("/players", params={"ids[]": [player_id]})
     except httpx.HTTPError as exc:
+        if strict_scraping.get():
+            raise
         logger.error("Errore fetch anagrafica per player_id=%s: %s", player_id, exc)
         return None
 
@@ -521,6 +533,8 @@ def get_transfer_history(player_id: str) -> list[TransferRecord]:
     try:
         data = _get(f"/transfer/history/player/{player_id}")
     except httpx.HTTPError as exc:
+        if strict_scraping.get():
+            raise
         logger.error("Errore fetch transfer history per player_id=%s: %s", player_id, exc)
         return []
 
@@ -576,6 +590,8 @@ def get_market_value_history(player_id: str, years: int = 2) -> list[MarketValue
     try:
         data = _get(f"/player/{player_id}/market-value-history")
     except httpx.HTTPError as exc:
+        if strict_scraping.get():
+            raise
         logger.error("Errore fetch market-value-history per player_id=%s: %s", player_id, exc)
         return []
 
@@ -583,7 +599,8 @@ def get_market_value_history(player_id: str, years: int = 2) -> list[MarketValue
     if not entries:
         return []
 
-    cutoff = date.today().replace(year=date.today().year - years)
+    from datetime import timedelta
+    cutoff = date.today() - timedelta(days=366 * years)
     points = []
     for entry in entries:
         mv = entry.get("marketValue") or {}

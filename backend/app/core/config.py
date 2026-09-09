@@ -20,24 +20,24 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+psycopg2://wikiscout:wikiscout@localhost:5432/wikiscout"
 
     # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str | None = None
     CACHE_TTL_SECONDS: int = 60 * 30
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173"
 
     # Scheduler
-    ENABLE_SCHEDULER: bool = True
+    ENABLE_SCHEDULER: bool = False
+    # Hard per-run budget; GitHub's workflow also enforces a wall-clock limit.
+    SYNC_MAX_SECONDS: int = 2100
+    SYNC_RETRY_HOURS: int = 6
+    SYNC_SOURCE_FAILURE_LIMIT: int = 3
     NIGHTLY_JOB_HOUR: int = 3
     NIGHTLY_JOB_MINUTE: int = 0
-    # Alternativa a ENABLE_SCHEDULER per deploy dove il processo non resta
-    # sempre acceso da solo (es. piano free di Render, che si addormenta):
-    # un Cron Job esterno richiama POST /internal/nightly-job con questo
-    # segreto come header invece di affidarsi allo scheduler interno. None
-    # = endpoint disattivato (comportamento di default invariato).
+    # Legacy HTTP trigger is retired; kept only to authenticate its 410 response.
     NIGHTLY_JOB_SECRET: str | None = None
 
-    # Apify (usato per il valore di mercato Transfermarkt - non toccato)
+    # Legacy module only; the free worker never invokes Apify.
     APIFY_TOKEN: str | None = None
 
     # API-Football: NON e' piu' una dipendenza primaria (ricerca/statistiche

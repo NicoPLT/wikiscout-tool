@@ -69,8 +69,10 @@ export function XgXaCellRenderer(params: ICellRendererParams<PlayerRow>) {
 }
 
 export function UpdatedAtCellRenderer(params: ICellRendererParams<PlayerRow>) {
+  if (params.data?.sync_status === 'pending') return <span className="text-xs text-text-muted">In attesa</span>
+  if (params.data?.sync_status === 'error') return <span className="text-xs text-danger">Da riprovare</span>
   const { label, freshness } = formatRelativeUpdate(params.data?.last_synced_at)
   const toneClass =
     freshness === 'fresh' ? 'text-accent-primary' : freshness === 'stale' ? 'text-text-muted' : 'text-danger'
-  return <span className={`text-xs font-medium ${toneClass}`}>{label}</span>
+  return <span className={`text-xs font-medium ${toneClass}`}>{label}{params.data?.sync_status === 'partial' ? ' · parziale' : ''}</span>
 }

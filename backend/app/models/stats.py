@@ -30,6 +30,7 @@ class PlayerStatsMatch(Base):
     # id della partita nella fonte esterna (es. fixture id API-Football), usato
     # per evitare di duplicare la riga quando il job notturno rigira sullo stesso match.
     external_ref: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sofascore_ref: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

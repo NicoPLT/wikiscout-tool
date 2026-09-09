@@ -97,7 +97,7 @@ def _detect_recent_transfer(
     if not transfers:
         return None
     most_recent = max(transfers, key=lambda t: t.transfer_date)
-    if (today - most_recent.transfer_date).days > days:
+    if not 0 <= (today - most_recent.transfer_date).days <= days:
         return None
     origin = most_recent.club_from_name or "N/D"
     destination = most_recent.club_to_name or "N/D"
@@ -139,11 +139,8 @@ def detect_alerts_for_player(db: Session, player: Player, today: date | None = N
         candidates.append((WatchAlertTriggerType.market_value_spike, detail))
 
     if player.transfermarkt_id:
-        try:
-            transfers = transfermarkt_performance.get_transfer_history(player.transfermarkt_id)
-        except Exception:  # noqa: BLE001 - un problema sui trasferimenti non deve bloccare gli altri criteri
-            logger.exception("Errore fetch storico trasferimenti per player_id=%s", player.id)
-            transfers = []
+        transfers = [transfermarkt_performance.TransferRecord.model_validate(item)
+                     for item in (player.transfers_data or [])]
         detail = _detect_recent_transfer(transfers, settings.WATCH_ALERT_RECENT_TRANSFER_DAYS, today)
         if detail:
             candidates.append((WatchAlertTriggerType.recent_transfer, detail))

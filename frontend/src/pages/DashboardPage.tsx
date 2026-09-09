@@ -4,7 +4,8 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { PlayersGrid } from '../components/table/PlayersGrid'
 import { TagManagerModal } from '../components/tags/TagManagerModal'
-import { fetchWatchlist } from '../lib/playersApi'
+import { exportWatchlist, fetchWatchlist } from '../lib/playersApi'
+import { Spinner } from '../components/ui/Spinner'
 import { fetchTags } from '../lib/tagsApi'
 import type { PlayerRow, Tag } from '../types/player'
 
@@ -13,6 +14,8 @@ export function DashboardPage() {
   const [tags, setTags] = useState<Tag[]>([])
   const [isTagManagerOpen, setIsTagManagerOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
 
   const loadData = useCallback(async () => {
     try {
@@ -22,6 +25,8 @@ export function DashboardPage() {
       setError(null)
     } catch {
       setError('Impossibile caricare la watchlist. Verifica che il backend sia raggiungibile.')
+    } finally {
+      setLoading(false)
     }
   }, [])
 
@@ -29,12 +34,20 @@ export function DashboardPage() {
     loadData()
   }, [loadData])
 
+  async function downloadExport() {
+    setExporting(true)
+    try { await exportWatchlist() }
+    catch { setError('Esportazione non riuscita. Riprova.') }
+    finally { setExporting(false) }
+  }
+
   return (
     <AppLayout onDataChanged={loadData}>
       <div className="flex h-full flex-col gap-4">
         {error && (
           <Card className="border-danger/40">
             <p className="text-sm text-danger">{error}</p>
+            <Button variant="secondary" onClick={loadData}>Riprova</Button>
           </Card>
         )}
 
@@ -46,6 +59,9 @@ export function DashboardPage() {
                 Tutti i giocatori seguiti. Apri una scheda per rating, valore di mercato e ultimi aggiornamenti.
               </p>
             </div>
+            <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={downloadExport} disabled={exporting}
+              className="!px-3 !py-1.5 text-xs">{exporting ? 'Esportazione…' : 'Esporta dati'}</Button>
             <Button
               variant="secondary"
               onClick={() => setIsTagManagerOpen(true)}
@@ -53,9 +69,11 @@ export function DashboardPage() {
             >
               Gestisci tag
             </Button>
+            </div>
           </div>
           <div className="flex-1">
-            <PlayersGrid rows={rows} tags={tags} onRowRemoved={loadData} onTagAssigned={loadData} />
+            {loading ? <div className="flex items-center gap-3 py-8"><Spinner /><span className="text-sm text-text-muted">Caricamento… al primo accesso il servizio può impiegare circa un minuto.</span></div>
+              : <PlayersGrid rows={rows} tags={tags} onRowRemoved={loadData} onTagAssigned={loadData} />}
           </div>
         </Card>
       </div>

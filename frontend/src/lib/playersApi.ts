@@ -24,8 +24,8 @@ export async function fetchPlayerDetail(playerId: number): Promise<PlayerDetail>
   return data
 }
 
-export async function searchPlayers(query: string): Promise<PlayerSearchResult[]> {
-  const { data } = await api.get<PlayerSearchResult[]>('/api/players/search', { params: { q: query } })
+export async function searchPlayers(query: string, signal?: AbortSignal): Promise<PlayerSearchResult[]> {
+  const { data } = await api.get<PlayerSearchResult[]>('/api/players/search', { params: { q: query }, signal })
   return data
 }
 
@@ -78,3 +78,13 @@ export async function removeFromWatchlist(playerId: number): Promise<void> {
 }
 
 export type { MatchStatLine }
+
+export async function exportWatchlist(): Promise<void> {
+  const { data } = await api.get('/api/watchlist/export', { responseType: 'blob' })
+  const url = URL.createObjectURL(data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `wikiscout-${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}

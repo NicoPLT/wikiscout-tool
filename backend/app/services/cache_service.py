@@ -15,6 +15,8 @@ def cache_get(key: str) -> Any | None:
     """None sia per cache-miss che per Redis irraggiungibile: la cache e'
     solo un'ottimizzazione, un blip di Redis non deve mai far fallire una
     lettura che altrimenti funzionerebbe leggendo direttamente dal DB."""
+    if redis_client is None:
+        return None
     try:
         raw = redis_client.get(key)
     except redis_lib.RedisError:
@@ -26,6 +28,8 @@ def cache_get(key: str) -> Any | None:
 
 
 def cache_set(key: str, value: Any, ttl_seconds: int | None = None) -> None:
+    if redis_client is None:
+        return
     try:
         redis_client.set(key, json.dumps(value, default=str), ex=ttl_seconds or settings.CACHE_TTL_SECONDS)
     except redis_lib.RedisError:
@@ -33,6 +37,8 @@ def cache_set(key: str, value: Any, ttl_seconds: int | None = None) -> None:
 
 
 def cache_delete_prefix(prefix: str) -> None:
+    if redis_client is None:
+        return
     try:
         for key in redis_client.scan_iter(f"{prefix}*"):
             redis_client.delete(key)

@@ -48,9 +48,13 @@ export function PlayersMobileList({ rows, tags, onTagAssigned, onRequestRemove }
                 : undefined
             }
           >
+            {player.sync_status !== 'success' && <p className="mb-2 text-xs text-text-muted">
+              {player.sync_status === 'pending' ? 'In attesa di aggiornamento' : 'Dati parziali: apri la scheda per lo stato'}
+            </p>}
+
             <div className="flex items-start gap-3">
               {player.photo_url ? (
-                <img src={player.photo_url} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
+                <img loading="lazy" src={player.photo_url} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
               ) : (
                 <div className="h-11 w-11 shrink-0 rounded-full bg-bg-surface-hover" />
               )}

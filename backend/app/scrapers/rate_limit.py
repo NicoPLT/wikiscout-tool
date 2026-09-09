@@ -28,6 +28,8 @@ def _today_key(source: str) -> str:
 
 
 def register_call(source: str) -> int:
+    if redis_client is None:
+        return 0
     key = _today_key(source)
     try:
         count = redis_client.incr(key)
@@ -39,6 +41,8 @@ def register_call(source: str) -> int:
 
 
 def get_call_count(source: str) -> int:
+    if redis_client is None:
+        return 0
     try:
         raw = redis_client.get(_today_key(source))
         return int(raw) if raw else 0

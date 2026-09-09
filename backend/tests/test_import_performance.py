@@ -1,12 +1,4 @@
-"""Import di un giocatore nuovo: aggiungerlo dalla barra di ricerca deve
-restare veloce. Il collegamento Sofascore (ricerca nome + fetch statistiche
-via browser Playwright) era il passo piu' lento in assoluto (misurato dal
-vivo: ~25-30s da solo, su un totale che superava il minuto) e bloccava il
-"+ Aggiungi" in modo sincrono: questi test verificano che import_player_
-from_transfermarkt non apra piu' una sessione Sofascore, e che il
-collegamento avvenga invece on-demand alla prima apertura della scheda
-giocatore (get_player_detail), come gia' succede per fotmob_id/date_of_birth.
-"""
+"""Imports and reads never start scraping; workers enrich stored profiles."""
 
 from app.models.player import Player
 from app.models.user import User
@@ -38,7 +30,7 @@ def test_import_does_not_open_a_sofascore_session(db_session, monkeypatch):
     assert player.sofascore_id is None
 
 
-def test_get_player_detail_resolves_sofascore_on_demand(db_session, monkeypatch):
+def test_get_player_detail_never_resolves_sofascore(db_session, monkeypatch):
     user = User(email="scout@test.com", hashed_password="x")
     db_session.add(user)
     db_session.flush()
@@ -65,8 +57,8 @@ def test_get_player_detail_resolves_sofascore_on_demand(db_session, monkeypatch)
     detail = player_service.get_player_detail(db_session, user.id, player.id)
 
     assert detail is not None
-    assert calls == [player.id]
-    assert detail.sofascore_id == "12345"
+    assert calls == []
+    assert detail.sofascore_id is None
 
 
 def test_resolve_sofascore_link_skips_if_already_linked(db_session, monkeypatch):
