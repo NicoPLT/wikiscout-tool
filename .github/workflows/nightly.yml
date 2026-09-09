@@ -30,8 +30,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: pip
@@ -47,7 +47,7 @@ jobs:
       - name: Backup cifrato prima dell'aggiornamento
         run: python scripts/backup.py --output ../backups/wikiscout.backup.enc
       - name: Conserva backup per 14 giorni
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wikiscout-backup-${{ github.run_id }}-${{ github.run_attempt }}
           path: backups/*.enc
