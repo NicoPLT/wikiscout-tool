@@ -9,6 +9,7 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
+from app.db import base as _base  # noqa: F401  # registra tutti i modelli anche nel worker standalone
 from app.db.session import SessionLocal
 from app.models.data_source_log import DataSourceLog
 from app.models.job_lease import JobLease
