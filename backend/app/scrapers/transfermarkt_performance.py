@@ -410,7 +410,10 @@ def list_season_options(player_id: str, current_club_id: str, max_seasons: int =
     for g in all_games:
         season_id = g["gameInformation"]["seasonId"]
         by_season.setdefault(season_id, []).append(g)
-        season_labels[season_id] = g["gameInformation"]["season"].get("nonCyclicalName") or str(season_id)
+        # Alcune partite valide (riscontrato con Luciano Juba) hanno
+        # ``season: null``. La stagione numerica resta comunque disponibile.
+        season = g["gameInformation"].get("season") or {}
+        season_labels[season_id] = season.get("nonCyclicalName") or str(season_id)
 
     ordered_season_ids = sorted(by_season.keys(), reverse=True)[:max_seasons]
 

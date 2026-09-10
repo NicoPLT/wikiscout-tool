@@ -182,6 +182,34 @@ def test_source_outage_is_bounded_and_other_sources_continue(db_session, monkeyp
     assert result["succeeded"] == 6 * 4
 
 
+def test_transfermarkt_accepts_null_season_metadata(monkeypatch):
+    game = {
+        "gameInformation": {
+            "gameId": "match-1", "competitionId": "BRA1", "seasonId": 2025,
+            "season": None, "date": {"dateTimeUTC": "2026-09-05T00:00:00Z"},
+            "isNationalGame": False, "isGamePostponed": False,
+        },
+        "clubsInformation": {
+            "club": {"clubId": "10010", "venue": "home"},
+            "opponent": {"clubId": "8793"},
+        },
+        "statistics": {
+            "generalStatistics": {"participationState": "played"},
+            "playingTimeStatistics": {"playedMinutes": 90, "isStarting": True},
+            "goalStatistics": {"goalsScoredTotal": 1, "assists": 0},
+            "cardStatistics": {},
+        },
+    }
+    monkeypatch.setattr(tm, "get_all_games", lambda player_id: [game])
+    monkeypatch.setattr(tm, "get_club_primary_competition", lambda club_id: "BRA1")
+    monkeypatch.setattr(tm, "resolve_competition_names", lambda ids: {"BRA1": "Serie A"})
+    monkeypatch.setattr(tm, "resolve_club_names", lambda ids: {"10010": "Bahia"})
+
+    summary = tm.list_season_options("676035", "10010")[0]
+    assert summary.season_label == "2025"
+    assert summary.goals == 1
+
+
 def test_worker_rolls_back_one_failed_source_and_continues(db_session, monkeypatch):
     _, players = seed(db_session, 2)
     first_id = players[0].id
