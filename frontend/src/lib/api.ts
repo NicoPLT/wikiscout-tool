@@ -33,12 +33,28 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // A late response from an old session must not log out a newer login.
+    const token = getToken()
+    if (error.response?.status === 401 && token &&
+        error.config?.url !== '/api/auth/login' &&
+        error.config?.headers?.Authorization === `Bearer ${token}`) {
       clearToken()
-      if (window.location.pathname !== '/login') {
+      if (error.config?.url !== '/api/auth/me' && window.location.pathname !== '/login') {
         window.location.href = '/login'
       }
     }
     return Promise.reject(error)
   },
 )
+
+export function requestErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    if (error.response?.status === 401) return 'Email o password errati oppure sessione scaduta.'
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+      return 'Il server sta impiegando troppo tempo a rispondere. Attendi qualche secondo e riprova.'
+    }
+    if (!error.response) return 'Connessione al server non riuscita. Controlla la connessione e riprova.'
+    if (error.response.status >= 500) return 'Il servizio è temporaneamente non disponibile. Riprova tra qualche secondo.'
+  }
+  return 'Operazione non riuscita. Riprova.'
+}

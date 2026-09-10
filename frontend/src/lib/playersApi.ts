@@ -9,8 +9,8 @@ import type {
   WatchlistSummary,
 } from '../types/player'
 
-export async function fetchWatchlist(): Promise<PlayerRow[]> {
-  const { data } = await api.get<PlayerRow[]>('/api/watchlist')
+export async function fetchWatchlist(signal?: AbortSignal): Promise<PlayerRow[]> {
+  const { data } = await api.get<PlayerRow[]>('/api/watchlist', { signal, timeout: 30_000 })
   return data
 }
 

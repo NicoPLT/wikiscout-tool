@@ -21,6 +21,16 @@ API-Football, Redis o altri servizi a pagamento.
   ha un limite assoluto di 45 minuti. Un primo caricamento di 200 profili potrebbe
   richiedere piu' giri. Non esiste una garanzia di copertura delle fonti non ufficiali.
 - La tabella AG Grid viene scaricata soltanto su desktop. Il mobile usa le card.
+- Il login avvia il backend mentre si compilano le credenziali. Un errore di rete
+  durante il ripristino della sessione permette di riprovare senza perdere il token;
+  una sessione rifiutata con 401 richiede invece un nuovo accesso.
+- La watchlist appare senza attendere i tag. Dopo il login le letture della lista
+  e dei tag hanno limiti rispettivamente di 30 e 15 secondi; l'accesso iniziale
+  attende fino a 120 secondi per consentire il riavvio del servizio gratuito.
+- Durante accesso, apertura della schermata e caricamento dei dati, un cronometro
+  mostra il tempo trascorso nella fase corrente. L'avviso distingue l'eventuale
+  riavvio iniziale dal recupero dei dati; non mostra percentuali o tempi rimanenti
+  che il server non fornisce.
 - **Esporta dati** scarica un JSON con giocatori, note, tag, statistiche e alert.
   L'esportazione non contiene hash di login o segreti. Conservarla privatamente.
 
@@ -65,3 +75,19 @@ La migrazione `0008_free_sync` aggiunge colonne e una tabella, senza rimuovere d
 Per il controllo browser locale: avviare il frontend e lanciare
 `python scripts/check_ui.py --base-url http://127.0.0.1:5175` dal backend.
 Le API sono intercettate e simulate; il controllo non usa il database online.
+
+Per verificare anche login, timeout, ripristino della sessione, tag lenti e recupero
+di un file JavaScript non scaricato, usare la build di produzione:
+
+```text
+cd frontend
+npm run build
+npm run preview -- --host 127.0.0.1 --port 5175
+# In un altro terminale, dalla cartella backend:
+python scripts/check_startup_ui.py --base-url http://127.0.0.1:5175
+```
+
+Le correzioni all'avvio richiedono il deploy sia del frontend Netlify sia del
+backend Render. Non richiedono migrazioni aggiuntive o nuove variabili d'ambiente.
+Durante i deploy separati, il frontend resta compatibile con la precedente
+risposta di login del backend.

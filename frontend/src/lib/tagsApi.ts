@@ -1,8 +1,8 @@
 import { api } from './api'
 import type { Tag } from '../types/player'
 
-export async function fetchTags(): Promise<Tag[]> {
-  const { data } = await api.get<Tag[]>('/api/tags')
+export async function fetchTags(signal?: AbortSignal): Promise<Tag[]> {
+  const { data } = await api.get<Tag[]>('/api/tags', { signal, timeout: 15_000 })
   return data
 }
 

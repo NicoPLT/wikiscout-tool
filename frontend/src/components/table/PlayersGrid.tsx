@@ -4,7 +4,7 @@ import type { PlayerRow, Tag } from '../../types/player'
 import { PlayersMobileList } from './PlayersMobileList'
 import { removeFromWatchlist } from '../../lib/playersApi'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
-import { Spinner } from '../ui/Spinner'
+import { LoadingStatus } from '../ui/LoadingStatus'
 
 const DesktopPlayersGrid = lazy(() => import('./DesktopPlayersGrid').then((m) => ({ default: m.DesktopPlayersGrid })))
 
@@ -20,7 +20,7 @@ export function PlayersGrid(props: PlayersGridProps) {
   const [pending, setPending] = useState<PlayerRow | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (isDesktop) return <Suspense fallback={<Spinner />}><DesktopPlayersGrid {...props} /></Suspense>
+  if (isDesktop) return <Suspense fallback={<LoadingStatus message="Preparazione della tabella..." />}><DesktopPlayersGrid {...props} /></Suspense>
   async function remove() {
     if (!pending) return
     setBusy(true)

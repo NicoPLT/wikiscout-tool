@@ -1,16 +1,28 @@
-import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Logo } from '../components/Logo'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../hooks/useAuth'
+import { api, requestErrorMessage } from '../lib/api'
+import { LoadingStatus } from '../components/ui/LoadingStatus'
 
 export function LoginPage() {
-  const { login } = useAuth()
+  const { login, isAuthenticated, isLoading, error: sessionError, retry } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    // Start waking the service while the user enters their credentials.
+    const controller = new AbortController()
+    void api.get('/api/health', { signal: controller.signal }).catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  if (isAuthenticated && !isLoading) return <Navigate to="/" replace />
+  if (isSubmitting) return <LoadingStatus fullScreen phase="access" message="Accesso a WikiScout in corso..." />
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -18,9 +30,9 @@ export function LoginPage() {
     setIsSubmitting(true)
     try {
       await login(email, password)
-      navigate('/')
-    } catch {
-      setError('Email o password errati.')
+      navigate('/', { replace: true })
+    } catch (cause) {
+      setError(requestErrorMessage(cause))
     } finally {
       setIsSubmitting(false)
     }
@@ -37,8 +49,10 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <div>
-            <label className="label-caption mb-1.5 block">Email</label>
+            <label htmlFor="email" className="label-caption mb-1.5 block">Email</label>
             <input
+              id="email"
+              autoComplete="username"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -47,8 +61,10 @@ export function LoginPage() {
             />
           </div>
           <div>
-            <label className="label-caption mb-1.5 block">Password</label>
+            <label htmlFor="password" className="label-caption mb-1.5 block">Password</label>
             <input
+              id="password"
+              autoComplete="current-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -57,7 +73,12 @@ export function LoginPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-danger">{error}</p>}
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          {sessionError && <div>
+            <p role="alert" className="text-sm text-danger">{sessionError}</p>
+            <Button type="button" variant="secondary" onClick={retry}>Riprova accesso salvato</Button>
+          </div>}
+          {isLoading && <LoadingStatus phase="access" message="Verifica dell'accesso salvato..." />}
 
           <Button type="submit" disabled={isSubmitting} className="mt-2 w-full">
             {isSubmitting ? 'Accesso in corso...' : 'Accedi'}

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Spinner } from './components/ui/Spinner'
+import { LoadingStatus } from './components/ui/LoadingStatus'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './hooks/useAuth'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -12,7 +12,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Suspense fallback={<div className="flex justify-center p-12"><Spinner /></div>}>
+        <Suspense fallback={<LoadingStatus fullScreen message="Apertura della schermata..." />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
