@@ -13,6 +13,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  keepalive:
+    # GitHub disables scheduled workflows after 60 days without repository
+    # activity. Re-enabling this workflow through the API resets that timer.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Mantieni attiva la programmazione
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/nightly.yml/enable"
+
   update:
     # Disabled until the owner has added the secrets and explicitly enabled it.
     if: vars.WIKISCOUT_SYNC_ENABLED == 'true'
